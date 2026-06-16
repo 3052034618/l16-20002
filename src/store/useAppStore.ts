@@ -17,6 +17,9 @@ import type {
   InstallationProgress,
   TransportSummary,
   DashboardView,
+  WidgetConfig,
+  WorkOrderSLAInfo,
+  AssigneeWorkload,
 } from '@/types';
 import {
   mockUsers,
@@ -55,6 +58,11 @@ interface AppState {
   sidebarCollapsed: boolean;
   currentPage: string;
   
+  widgetConfigs: WidgetConfig[];
+  visibleWidgets: string[];
+  setVisibleWidgets: (widgets: string[]) => void;
+  toggleWidget: (widgetId: string) => void;
+  
   setCurrentUser: (user: User) => void;
   setCurrentPage: (page: string) => void;
   toggleDarkMode: () => void;
@@ -73,6 +81,9 @@ interface AppState {
   approveSale: (saleId: string, level: string, comment?: string) => void;
   rejectSale: (saleId: string, level: string, comment?: string) => void;
   escalateOverdueSales: () => void;
+  batchApproveSales: (saleIds: string[], level: string, comment?: string) => void;
+  batchRejectSales: (saleIds: string[], level: string, comment?: string) => void;
+  delegateSale: (saleId: string, targetUserId: string, targetUserName: string) => void;
   
   updateTask: (id: string, updates: Partial<InstallTask>) => void;
   
@@ -93,11 +104,16 @@ interface AppState {
   getFilteredDashboardData: () => DashboardData;
   getPendingCountForCurrentUser: () => number;
   
+  getWorkOrderSLA: () => Record<string, WorkOrderSLAInfo>;
+  getAssigneeWorkload: () => AssigneeWorkload[];
+  
   dashboardViews: DashboardView[];
   currentViewId: string | null;
   saveDashboardView: (name: string, visibleWidgets: string[]) => void;
   loadDashboardView: (viewId: string) => void;
   deleteDashboardView: (viewId: string) => void;
+  
+  initFromLocalStorage: () => void;
 }
 
 const roleHierarchy: Record<UserRole, number> = {
@@ -108,6 +124,51 @@ const roleHierarchy: Record<UserRole, number> = {
 };
 
 const initialWorkOrders: WorkOrder[] = [...mockWorkOrders];
+
+const DEFAULT_WIDGET_CONFIGS: WidgetConfig[] = [
+  { id: 'stat_total', name: '藏品总数', category: 'stat', icon: 'BarChart3', defaultVisible: true },
+  { id: 'stat_visitors', name: '今日访客', category: 'stat', icon: 'Eye', defaultVisible: true },
+  { id: 'stat_exhibitions', name: '进行中展览', category: 'stat', icon: 'Palette', defaultVisible: true },
+  { id: 'stat_intransit', name: '在途运输', category: 'stat', icon: 'Truck', defaultVisible: true },
+  { id: 'stat_value', name: '藏品总值', category: 'stat', icon: 'BarChart3', defaultVisible: true },
+  { id: 'stat_pending', name: '待审批', category: 'stat', icon: 'Clock', defaultVisible: true },
+  { id: 'chart_halls', name: '展厅实时状态', category: 'chart', icon: 'MapPin', defaultVisible: true },
+  { id: 'chart_collection', name: '藏品分类', category: 'chart', icon: 'PieChart', defaultVisible: true },
+  { id: 'chart_env', name: '环境趋势图', category: 'chart', icon: 'Thermometer', defaultVisible: true },
+  { id: 'chart_compliance', name: '环境达标率', category: 'chart', icon: 'CheckCircle', defaultVisible: true },
+  { id: 'section_installations', name: '布展进度', category: 'section', icon: 'LayoutGrid', defaultVisible: true },
+  { id: 'section_logistics', name: '在途运输', category: 'section', icon: 'Truck', defaultVisible: true },
+  { id: 'section_alerts', name: '最近告警', category: 'section', icon: 'AlertTriangle', defaultVisible: true },
+  { id: 'section_activities', name: '最近动态', category: 'section', icon: 'Activity', defaultVisible: true },
+];
+
+const DEFAULT_VISIBLE_WIDGETS = DEFAULT_WIDGET_CONFIGS.filter(w => w.defaultVisible).map(w => w.id);
+
+const STORAGE_KEYS = {
+  DASHBOARD_VIEWS: 'artms_dashboard_views',
+  CURRENT_VIEW_ID: 'artms_current_view_id',
+  VISIBLE_WIDGETS: 'artms_visible_widgets',
+  DARK_MODE: 'artms_dark_mode',
+  CURRENT_USER: 'artms_current_user',
+};
+
+const persistToStorage = (key: string, value: any) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    console.warn('Failed to persist to localStorage:', e);
+  }
+};
+
+const loadFromStorage = <T>(key: string, defaultValue: T): T => {
+  try {
+    const stored = localStorage.getItem(key);
+    return stored ? JSON.parse(stored) : defaultValue;
+  } catch (e) {
+    console.warn('Failed to load from localStorage:', e);
+    return defaultValue;
+  }
+};
 
 export const useAppStore = create<AppState>((set, get) => ({
   currentUser: mockUsers[0],
@@ -130,13 +191,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   darkMode: false,
   sidebarCollapsed: false,
   currentPage: 'dashboard',
+  widgetConfigs: DEFAULT_WIDGET_CONFIGS,
+  visibleWidgets: DEFAULT_VISIBLE_WIDGETS,
 
-  setCurrentUser: (user) => set({ currentUser: user }),
+  setCurrentUser: (user) => {
+    set({ currentUser: user });
+    persistToStorage(STORAGE_KEYS.CURRENT_USER, user);
+  },
   setCurrentPage: (page) => set({ currentPage: page }),
   
   toggleDarkMode: () => {
     const newDarkMode = !get().darkMode;
     set({ darkMode: newDarkMode });
+    persistToStorage(STORAGE_KEYS.DARK_MODE, newDarkMode);
     if (newDarkMode) {
       document.documentElement.classList.add('dark');
     } else {
@@ -145,6 +212,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   
   toggleSidebar: () => set({ sidebarCollapsed: !get().sidebarCollapsed }),
+  
+  setVisibleWidgets: (widgets) => {
+    set({ visibleWidgets: widgets });
+    persistToStorage(STORAGE_KEYS.VISIBLE_WIDGETS, widgets);
+  },
+  
+  toggleWidget: (widgetId) => {
+    const current = get().visibleWidgets;
+    const next = current.includes(widgetId)
+      ? current.filter(w => w !== widgetId)
+      : [...current, widgetId];
+    set({ visibleWidgets: next });
+    persistToStorage(STORAGE_KEYS.VISIBLE_WIDGETS, next);
+  },
   
   setFilters: (filters) => {
     set({ filters: { ...get().filters, ...filters } });
@@ -776,6 +857,122 @@ export const useAppStore = create<AppState>((set, get) => ({
     ).length;
   },
 
+  batchApproveSales: (saleIds, level, comment) => {
+    saleIds.forEach(id => {
+      get().approveSale(id, level, comment);
+    });
+  },
+
+  batchRejectSales: (saleIds, level, comment) => {
+    saleIds.forEach(id => {
+      get().rejectSale(id, level, comment);
+    });
+  },
+
+  delegateSale: (saleId, targetUserId, targetUserName) => {
+    const state = get();
+    const sale = state.sales.find(s => s.id === saleId);
+    if (!sale) return;
+
+    const updatedSale: SaleRecord = {
+      ...sale,
+      delegatedTo: targetUserName,
+      delegatedToId: targetUserId,
+      delegatedAt: new Date().toISOString(),
+      lastUpdate: new Date().toISOString(),
+    };
+
+    set({
+      sales: state.sales.map(s => s.id === saleId ? updatedSale : s),
+    });
+    setTimeout(() => get().recalculateDashboardData(), 0);
+  },
+
+  getWorkOrderSLA: () => {
+    const state = get();
+    const now = new Date();
+    const slaLimits: Record<string, number> = {
+      warning: 60,
+      critical: 30,
+      escalated: 15,
+    };
+
+    const result: Record<string, WorkOrderSLAInfo> = {};
+    state.workOrders
+      .filter(wo => wo.status !== 'resolved')
+      .forEach(wo => {
+        const alert = state.alerts.find(a => a.workOrderId === wo.id || a.id === wo.alertId);
+        const alertLevel = alert?.level || 'warning';
+        const limitMinutes = slaLimits[alertLevel] || 60;
+        const totalSeconds = limitMinutes * 60;
+        const created = new Date(wo.createdAt);
+        const deadline = new Date(created.getTime() + limitMinutes * 60 * 1000);
+        const remainingMs = deadline.getTime() - now.getTime();
+        const remainingSeconds = Math.floor(remainingMs / 1000);
+        
+        const elapsedRatio = 1 - (remainingSeconds / totalSeconds);
+        let riskLevel: WorkOrderSLAInfo['riskLevel'];
+        if (remainingSeconds <= 0) {
+          riskLevel = 'overdue';
+        } else if (elapsedRatio >= 0.8) {
+          riskLevel = 'danger';
+        } else if (elapsedRatio >= 0.5) {
+          riskLevel = 'warning';
+        } else {
+          riskLevel = 'safe';
+        }
+
+        result[wo.id] = {
+          workOrderId: wo.id,
+          alertLevel,
+          remainingSeconds,
+          totalSeconds,
+          deadline,
+          riskLevel,
+          assignee: wo.assignee,
+          assigneeId: wo.assigneeId,
+        };
+      });
+    return result;
+  },
+
+  getAssigneeWorkload: () => {
+    const state = get();
+    const slaMap = state.getWorkOrderSLA();
+    const workloadMap = new Map<string, AssigneeWorkload>();
+
+    state.workOrders.forEach(wo => {
+      if (wo.status === 'resolved') return;
+      const key = wo.assigneeId || wo.assignee;
+      if (!workloadMap.has(key)) {
+        workloadMap.set(key, {
+          assigneeId: wo.assigneeId,
+          assignee: wo.assignee,
+          totalCount: 0,
+          safeCount: 0,
+          warningCount: 0,
+          dangerCount: 0,
+          overdueCount: 0,
+        });
+      }
+      const wl = workloadMap.get(key)!;
+      wl.totalCount++;
+      const sla = slaMap[wo.id];
+      if (sla) {
+        switch (sla.riskLevel) {
+          case 'safe': wl.safeCount++; break;
+          case 'warning': wl.warningCount++; break;
+          case 'danger': wl.dangerCount++; break;
+          case 'overdue': wl.overdueCount++; break;
+        }
+      } else {
+        wl.safeCount++;
+      }
+    });
+
+    return Array.from(workloadMap.values()).sort((a, b) => b.totalCount - a.totalCount);
+  },
+
   saveDashboardView: (name, visibleWidgets) => {
     const state = get();
     const newView: DashboardView = {
@@ -787,10 +984,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       createdBy: state.currentUser.id,
     };
     
+    const newViews = [...state.dashboardViews, newView];
     set({
-      dashboardViews: [...state.dashboardViews, newView],
+      dashboardViews: newViews,
       currentViewId: newView.id,
     });
+    persistToStorage(STORAGE_KEYS.DASHBOARD_VIEWS, newViews);
+    persistToStorage(STORAGE_KEYS.CURRENT_VIEW_ID, newView.id);
   },
 
   loadDashboardView: (viewId) => {
@@ -799,17 +999,63 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (view) {
       set({
         filters: { ...view.filters },
+        visibleWidgets: view.visibleWidgets,
         currentViewId: viewId,
       });
+      persistToStorage(STORAGE_KEYS.CURRENT_VIEW_ID, viewId);
+      persistToStorage(STORAGE_KEYS.VISIBLE_WIDGETS, view.visibleWidgets);
       setTimeout(() => get().recalculateDashboardData(), 0);
     }
   },
 
   deleteDashboardView: (viewId) => {
     const state = get();
+    const newViews = state.dashboardViews.filter(v => v.id !== viewId);
+    const newCurrentView = state.currentViewId === viewId ? null : state.currentViewId;
     set({
-      dashboardViews: state.dashboardViews.filter(v => v.id !== viewId),
-      currentViewId: state.currentViewId === viewId ? null : state.currentViewId,
+      dashboardViews: newViews,
+      currentViewId: newCurrentView,
     });
+    persistToStorage(STORAGE_KEYS.DASHBOARD_VIEWS, newViews);
+    persistToStorage(STORAGE_KEYS.CURRENT_VIEW_ID, newCurrentView);
+  },
+
+  initFromLocalStorage: () => {
+    const savedUser = loadFromStorage<User | null>(STORAGE_KEYS.CURRENT_USER, null);
+    const savedDarkMode = loadFromStorage<boolean>(STORAGE_KEYS.DARK_MODE, false);
+    const savedViews = loadFromStorage<DashboardView[]>(STORAGE_KEYS.DASHBOARD_VIEWS, []);
+    const savedCurrentViewId = loadFromStorage<string | null>(STORAGE_KEYS.CURRENT_VIEW_ID, null);
+    const savedVisibleWidgets = loadFromStorage<string[]>(STORAGE_KEYS.VISIBLE_WIDGETS, DEFAULT_VISIBLE_WIDGETS);
+
+    const updates: Partial<AppState> = {
+      darkMode: savedDarkMode,
+      dashboardViews: savedViews,
+      currentViewId: savedCurrentViewId,
+      visibleWidgets: savedVisibleWidgets,
+    };
+
+    if (savedUser) {
+      const matchedUser = get().users.find(u => u.id === savedUser.id);
+      if (matchedUser) {
+        updates.currentUser = matchedUser;
+      }
+    }
+
+    if (savedDarkMode) {
+      document.documentElement.classList.add('dark');
+    }
+
+    if (savedCurrentViewId) {
+      const view = savedViews.find(v => v.id === savedCurrentViewId);
+      if (view) {
+        updates.filters = { ...view.filters };
+        if (!localStorage.getItem(STORAGE_KEYS.VISIBLE_WIDGETS)) {
+          updates.visibleWidgets = view.visibleWidgets;
+        }
+      }
+    }
+
+    set(updates as any);
+    setTimeout(() => get().recalculateDashboardData(), 0);
   },
 }));

@@ -24,7 +24,11 @@ const pageTitles: Record<string, { title: string; subtitle?: string }> = {
 };
 
 function App() {
-  const { currentPage, setCurrentPage, darkMode } = useAppStore();
+  const { currentPage, setCurrentPage, darkMode, initFromLocalStorage } = useAppStore();
+
+  useEffect(() => {
+    initFromLocalStorage();
+  }, [initFromLocalStorage]);
 
   useEffect(() => {
     if (darkMode) {

@@ -6,7 +6,7 @@ import Modal from '@/components/common/Modal';
 
 interface ExportReportModalProps {
   isOpen: boolean;
-  onClose: () => void;
+  onClose: (downloaded: boolean) => void;
   defaultType?: 'monthly' | 'flow';
 }
 
@@ -216,13 +216,13 @@ ${artists.map(artist => {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
     
-    onClose();
+    onClose(true);
   };
 
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={() => onClose(false)}
       title={exportType === 'monthly' ? '导出月度运营报告' : '导出藏品流动明细'}
     >
       <div className="p-6">
@@ -361,7 +361,7 @@ ${artists.map(artist => {
 
         <div className="flex justify-end gap-3">
           <button
-            onClick={onClose}
+            onClick={() => onClose(false)}
             className="px-5 py-2.5 rounded-lg border border-ink-200 dark:border-ink-600 text-ink-600 dark:text-ink-300 hover:bg-ink-50 dark:hover:bg-ink-700/50 transition-colors"
           >
             取消

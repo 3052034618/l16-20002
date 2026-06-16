@@ -314,7 +314,7 @@ const envChartData = Array.from({ length: 24 }, (_, i) => ({
 }));
 
 export default function Dashboard() {
-  const { dashboardData, updateDashboardData, recalculateDashboardData } = useAppStore();
+  const { dashboardData, updateDashboardData, recalculateDashboardData, visibleWidgets } = useAppStore();
   const [refreshTime, setRefreshTime] = useState(new Date());
   const [exportToast, setExportToast] = useState<string | null>(null);
 
@@ -347,6 +347,8 @@ export default function Dashboard() {
     { name: '装置', value: 18, color: '#8b5cf6' },
   ];
 
+  const showWidget = (id: string) => visibleWidgets.includes(id);
+
   return (
     <div className="p-6 space-y-6">
       <DashboardFilters onExport={handleExport} />
@@ -357,7 +359,10 @@ export default function Dashboard() {
           {exportToast}
         </div>
       )}
+      
+      {(showWidget('stat_total') || showWidget('stat_visitors') || showWidget('stat_exhibitions') || showWidget('stat_intransit') || showWidget('stat_value') || showWidget('stat_pending')) && (
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {showWidget('stat_total') && (
         <StatCard
           icon={BarChart3}
           label="藏品总数"
@@ -366,6 +371,8 @@ export default function Dashboard() {
           trend="+3.2%"
           color="gold"
         />
+        )}
+        {showWidget('stat_visitors') && (
         <StatCard
           icon={Eye}
           label="今日访客"
@@ -374,6 +381,8 @@ export default function Dashboard() {
           trend="+12.5%"
           color="emerald"
         />
+        )}
+        {showWidget('stat_exhibitions') && (
         <StatCard
           icon={Palette}
           label="进行中展览"
@@ -381,6 +390,8 @@ export default function Dashboard() {
           subValue="个"
           color="blue"
         />
+        )}
+        {showWidget('stat_intransit') && (
         <StatCard
           icon={Truck}
           label="在途运输"
@@ -388,6 +399,8 @@ export default function Dashboard() {
           subValue="件作品"
           color="amber"
         />
+        )}
+        {showWidget('stat_value') && (
         <StatCard
           icon={BarChart3}
           label="藏品总值"
@@ -395,6 +408,8 @@ export default function Dashboard() {
           subValue="人民币"
           color="gold"
         />
+        )}
+        {showWidget('stat_pending') && (
         <StatCard
           icon={Clock}
           label="待审批"
@@ -402,9 +417,13 @@ export default function Dashboard() {
           subValue="个申请"
           color="amber"
         />
+        )}
       </div>
+      )}
 
+      {(showWidget('chart_halls') || showWidget('chart_collection')) && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {showWidget('chart_halls') && (
         <div className="lg:col-span-2">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-display font-semibold text-ink-800 dark:text-ink-100">
@@ -420,7 +439,9 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
+        )}
 
+        {showWidget('chart_collection') && (
         <div>
           <h2 className="text-lg font-display font-semibold text-ink-800 dark:text-ink-100 mb-4">
             藏品分类
@@ -461,13 +482,19 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+        )}
       </div>
+      )}
 
+      {(showWidget('chart_env') || showWidget('chart_compliance')) && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {showWidget('chart_env') && (
         <div className="lg:col-span-2">
           <EnvChart data={envChartData} />
         </div>
+        )}
 
+        {showWidget('chart_compliance') && (
         <div>
           <h2 className="text-lg font-display font-semibold text-ink-800 dark:text-ink-100 mb-4">
             环境达标率
@@ -521,9 +548,13 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+        )}
       </div>
+      )}
 
+      {(showWidget('section_installations') || showWidget('section_logistics') || showWidget('section_alerts')) && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {showWidget('section_installations') && (
         <div>
           <h2 className="text-lg font-display font-semibold text-ink-800 dark:text-ink-100 mb-4">
             布展进度
@@ -534,7 +565,9 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
+        )}
 
+        {showWidget('section_logistics') && (
         <div>
           <h2 className="text-lg font-display font-semibold text-ink-800 dark:text-ink-100 mb-4">
             在途运输
@@ -545,7 +578,9 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
+        )}
 
+        {showWidget('section_alerts') && (
         <div>
           <h2 className="text-lg font-display font-semibold text-ink-800 dark:text-ink-100 mb-4">
             最新告警
@@ -556,7 +591,9 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
+        )}
       </div>
+      )}
     </div>
   );
 }

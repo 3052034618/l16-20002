@@ -12,7 +12,7 @@ interface HeaderProps {
 }
 
 export default function Header({ title, subtitle, showExport, onExport }: HeaderProps) {
-  const { currentUser, darkMode, toggleDarkMode, dashboardData, users, setCurrentUser, exhibitions, artists, artworks, sales } = useAppStore();
+  const { currentUser, darkMode, toggleDarkMode, users, setCurrentUser, getPendingCountForCurrentUser } = useAppStore();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showSwitchUser, setShowSwitchUser] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
@@ -21,7 +21,7 @@ export default function Header({ title, subtitle, showExport, onExport }: Header
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
-  const pendingCount = dashboardData?.overview?.pendingApprovals || 0;
+  const pendingCount = getPendingCountForCurrentUser();
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -49,9 +49,11 @@ export default function Header({ title, subtitle, showExport, onExport }: Header
     setShowExportModal(true);
   };
 
-  const handleExportClose = () => {
+  const handleExportClose = (downloaded: boolean) => {
     setShowExportModal(false);
-    onExport?.();
+    if (downloaded) {
+      onExport?.();
+    }
   };
 
   return (

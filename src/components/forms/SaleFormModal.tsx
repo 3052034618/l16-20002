@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Plus, CheckCircle, XCircle, Clock, AlertTriangle, User, Calendar, DollarSign, FileText } from 'lucide-react';
+import { Plus, CheckCircle, XCircle, Clock, AlertTriangle, User, Calendar, DollarSign, FileText, Share2, Users } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { cn, formatCurrency, formatDate, getStatusText, getRoleText } from '@/utils';
 import Modal from '@/components/common/Modal';
-import type { SaleRecord, ApprovalLevel } from '@/types';
+import type { SaleRecord, ApprovalLevel, UserRole } from '@/types';
 
 interface SaleFormModalProps {
   isOpen: boolean;
@@ -291,13 +291,17 @@ export function SaleFormModal({ isOpen, onClose }: SaleFormModalProps) {
 }
 
 export function SaleDetailModal({ isOpen, onClose, sale }: SaleDetailModalProps) {
-  const { approveSale, rejectSale, currentUser, hasPermission } = useAppStore();
+  const { approveSale, rejectSale, currentUser, hasPermission, users, delegateSale } = useAppStore();
   const [comment, setComment] = useState('');
   const [actionType, setActionType] = useState<'approve' | 'reject' | null>(null);
+  const [showDelegate, setShowDelegate] = useState(false);
+  const [delegateUserId, setDelegateUserId] = useState('');
 
   useEffect(() => {
     setComment('');
     setActionType(null);
+    setShowDelegate(false);
+    setDelegateUserId('');
   }, [sale]);
 
   if (!sale) return null;
@@ -325,6 +329,26 @@ export function SaleDetailModal({ isOpen, onClose, sale }: SaleDetailModalProps)
       rejectSale(sale.id, sale.currentLevel, comment);
     }
     
+    onClose();
+  };
+
+  const levelRoleMap: Record<string, UserRole[]> = {
+    director: ['director'],
+    committee: ['curator', 'director'],
+    financial: ['keeper', 'director'],
+  };
+
+  const sameRoleColleagues = users.filter(u => 
+    u.id !== currentUser.id && 
+    levelRoleMap[sale.currentLevel]?.includes(u.role)
+  );
+
+  const handleDelegate = () => {
+    if (!delegateUserId) return;
+    const targetUser = users.find(u => u.id === delegateUserId);
+    if (targetUser) {
+      delegateSale(sale.id, targetUser.id, targetUser.name);
+    }
     onClose();
   };
 
@@ -396,6 +420,19 @@ export function SaleDetailModal({ isOpen, onClose, sale }: SaleDetailModalProps)
               {levelNames[sale.currentLevel]}
             </p>
           </div>
+          {sale.delegatedTo && (
+            <div>
+              <p className="text-xs text-ink-400 mb-1">临时转交</p>
+              <p className="font-medium text-violet-600 dark:text-violet-400">
+                {sale.delegatedTo}
+                {sale.delegatedAt && (
+                  <span className="text-xs ml-2 text-ink-400">
+                    {formatDate(sale.delegatedAt)}
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
           {sale.lastUpdate && sale.status !== 'approved' && sale.status !== 'rejected' && (
             <>
               <div>
@@ -516,6 +553,67 @@ export function SaleDetailModal({ isOpen, onClose, sale }: SaleDetailModalProps)
 
         {canApprove() && (
           <div className="space-y-4 pt-4 border-t border-ink-200 dark:border-ink-700">
+            {sameRoleColleagues.length > 0 && (
+              <div className="space-y-3">
+                <button
+                  onClick={() => { setShowDelegate(!showDelegate); setActionType(null); }}
+                  className={cn(
+                    'px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2',
+                    showDelegate
+                      ? 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-400'
+                      : 'border border-violet-200 dark:border-violet-500/30 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-500/10'
+                  )}
+                >
+                  <Share2 className="w-4 h-4" />
+                  {showDelegate ? '取消转交' : '临时转交给同事'}
+                </button>
+                {showDelegate && (
+                  <div className="p-4 rounded-xl bg-violet-50 dark:bg-violet-500/10 border border-violet-200 dark:border-violet-500/30 space-y-3">
+                    <p className="text-sm text-ink-600 dark:text-ink-300 flex items-center gap-2">
+                      <Users className="w-4 h-4" />
+                      选择同角色的同事临时处理此申请：
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {sameRoleColleagues.map(colleague => (
+                        <button
+                          key={colleague.id}
+                          onClick={() => setDelegateUserId(colleague.id)}
+                          className={cn(
+                            'px-4 py-2 rounded-lg text-sm font-medium border transition-all flex items-center gap-2',
+                            delegateUserId === colleague.id
+                              ? 'bg-violet-500 text-white border-violet-500 ring-2 ring-violet-500/30'
+                              : 'bg-white dark:bg-ink-700/50 border-ink-200 dark:border-ink-600 text-ink-600 dark:text-ink-300 hover:border-violet-300 dark:hover:border-violet-500/50'
+                          )}
+                        >
+                          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-gold-400 to-amber-600 flex items-center justify-center text-white text-xs font-semibold">
+                            {colleague.name.charAt(0)}
+                          </div>
+                          {colleague.name}
+                          <span className="text-xs opacity-70">({getRoleText(colleague.role)})</span>
+                        </button>
+                      ))}
+                    </div>
+                    {delegateUserId && (
+                      <div className="flex justify-end gap-3 pt-2">
+                        <button
+                          onClick={() => { setShowDelegate(false); setDelegateUserId(''); }}
+                          className="px-4 py-2 text-sm text-ink-500 hover:text-ink-700 dark:hover:text-ink-300"
+                        >
+                          取消
+                        </button>
+                        <button
+                          onClick={handleDelegate}
+                          className="px-5 py-2 rounded-lg bg-violet-500 text-white text-sm font-medium hover:bg-violet-600 transition-colors flex items-center gap-2"
+                        >
+                          <Share2 className="w-4 h-4" />
+                          确认转交
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-ink-700 dark:text-ink-300 mb-1">
                 审批意见
@@ -530,7 +628,7 @@ export function SaleDetailModal({ isOpen, onClose, sale }: SaleDetailModalProps)
             </div>
             <div className="flex justify-end gap-3">
               <button
-                onClick={() => setActionType('reject')}
+                onClick={() => { setActionType('reject'); setShowDelegate(false); }}
                 className={cn(
                   'px-5 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2',
                   actionType === 'reject'
@@ -542,7 +640,7 @@ export function SaleDetailModal({ isOpen, onClose, sale }: SaleDetailModalProps)
                 驳回
               </button>
               <button
-                onClick={() => setActionType('approve')}
+                onClick={() => { setActionType('approve'); setShowDelegate(false); }}
                 className={cn(
                   'px-5 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2',
                   actionType === 'approve'

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Plus,
   Search,
@@ -13,6 +13,10 @@ import {
   ArrowRight,
   XCircle,
   TrendingUp,
+  CheckSquare,
+  Square,
+  Share2,
+  X,
 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import {
@@ -22,9 +26,10 @@ import {
   formatDateTime,
   getStatusText,
   getStatusColor,
+  getRoleText,
 } from '@/utils';
 import { SaleFormModal, SaleDetailModal } from '@/components/forms/SaleFormModal';
-import type { SaleRecord } from '@/types';
+import type { SaleRecord, ApprovalLevel } from '@/types';
 
 const typeTabs = ['all', 'sale', 'rental'];
 const statusTabs = ['all', 'pending', 'director_approved', 'committee_approved', 'approved', 'rejected'];
@@ -81,31 +86,68 @@ function ApprovalTimeline({ approvals, escalated }: { approvals: any[]; escalate
   );
 }
 
-function SaleCard({ sale, onView }: { sale: any; onView: (id: string) => void }) {
+function SaleCard({ sale, onView, selected, onToggleSelect, selectable }: {
+  sale: any;
+  onView: (id: string) => void;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
+  selectable?: boolean;
+}) {
   return (
     <div
-      onClick={() => onView(sale.id)}
-      className="bg-white dark:bg-ink-800/50 rounded-xl p-4 border border-ink-200 dark:border-ink-700/50 shadow-sm hover:shadow-md hover:border-gold-500/30 transition-all cursor-pointer group"
+      className={cn(
+        'bg-white dark:bg-ink-800/50 rounded-xl p-4 border shadow-sm hover:shadow-md transition-all group',
+        selected
+          ? 'border-gold-500 ring-2 ring-gold-500/30 shadow-gold-500/10'
+          : 'border-ink-200 dark:border-ink-700/50 hover:border-gold-500/30'
+      )}
     >
       <div className="flex items-start gap-4">
+        {selectable && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleSelect?.(sale.id); }}
+            className="shrink-0 mt-1 text-ink-400 hover:text-gold-500 transition-colors"
+          >
+            {selected ? (
+              <CheckSquare className="w-5 h-5 text-gold-500" />
+            ) : (
+              <Square className="w-5 h-5" />
+            )}
+          </button>
+        )}
         <img
           src={sale.artworkImage}
           alt={sale.artworkTitle}
-          className="w-20 h-24 rounded-lg object-cover shrink-0"
+          onClick={() => onView(sale.id)}
+          className="w-20 h-24 rounded-lg object-cover shrink-0 cursor-pointer"
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2 mb-1">
-            <h3 className="font-medium text-ink-800 dark:text-ink-100 truncate">
+            <h3
+              onClick={() => onView(sale.id)}
+              className="font-medium text-ink-800 dark:text-ink-100 truncate cursor-pointer hover:text-gold-500"
+            >
               {sale.artworkTitle}
             </h3>
-            <span
-              className={cn(
-                'text-xs px-2 py-0.5 rounded-full font-medium shrink-0',
-                getStatusColor(sale.type)
+            <div className="flex items-center gap-1 shrink-0">
+              {sale.delegatedTo && (
+                <span
+                  className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-400 flex items-center gap-1"
+                  title={`临时转交给 ${sale.delegatedTo}`}
+                >
+                  <Share2 className="w-3 h-3" />
+                  转交
+                </span>
               )}
-            >
-              {sale.type === 'sale' ? '销售' : '租赁'}
-            </span>
+              <span
+                className={cn(
+                  'text-xs px-2 py-0.5 rounded-full font-medium shrink-0',
+                  getStatusColor(sale.type)
+                )}
+              >
+                {sale.type === 'sale' ? '销售' : '租赁'}
+              </span>
+            </div>
           </div>
           <p className="text-sm text-ink-500 dark:text-ink-400 mb-2">
             {sale.artistName}
@@ -140,7 +182,7 @@ function SaleCard({ sale, onView }: { sale: any; onView: (id: string) => void })
 }
 
 export default function Sales() {
-  const { sales, escalateOverdueSales, currentUser, hasPermission, getPendingCountForCurrentUser } = useAppStore();
+  const { sales, escalateOverdueSales, currentUser, hasPermission, getPendingCountForCurrentUser, batchApproveSales, batchRejectSales, users, delegateSale } = useAppStore();
   const [activeTypeTab, setActiveTypeTab] = useState('all');
   const [activeStatusTab, setActiveStatusTab] = useState('all');
   const [viewMode, setViewMode] = useState<'all' | 'mine'>('mine');
@@ -148,6 +190,11 @@ export default function Sales() {
   const [showFormModal, setShowFormModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedSale, setSelectedSale] = useState<SaleRecord | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchAction, setBatchAction] = useState<'approve' | 'reject' | null>(null);
+  const [batchComment, setBatchComment] = useState('');
+  const [showBatchDelegate, setShowBatchDelegate] = useState(false);
+  const [batchDelegateUserId, setBatchDelegateUserId] = useState('');
 
   useEffect(() => {
     escalateOverdueSales();
@@ -166,6 +213,14 @@ export default function Sales() {
   const userLevel = roleLevelMap[currentUser.role];
   const canApprove = !!userLevel;
 
+  const isMyApproval = (sale: SaleRecord) => {
+    if (sale.status === 'approved' || sale.status === 'rejected') return false;
+    if (sale.currentLevel !== userLevel) return false;
+    if (sale.delegatedToId && sale.delegatedToId === currentUser.id) return true;
+    if (sale.delegatedToId) return false;
+    return true;
+  };
+
   const filteredSales = sales.filter((sale) => {
     const matchType = activeTypeTab === 'all' || sale.type === activeTypeTab;
     const matchStatus = activeStatusTab === 'all' || sale.status === activeStatusTab;
@@ -174,11 +229,35 @@ export default function Sales() {
       sale.artistName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       sale.applicant.toLowerCase().includes(searchTerm.toLowerCase());
     
-    const matchMine = viewMode === 'all' || 
-      (canApprove && sale.currentLevel === userLevel && sale.status !== 'approved' && sale.status !== 'rejected');
+    const matchMine = viewMode === 'all' || isMyApproval(sale);
     
     return matchType && matchStatus && matchSearch && matchMine;
   });
+
+  const selectableSales = filteredSales.filter(s => isMyApproval(s));
+
+  const commonLevel = useMemo(() => {
+    if (selectedIds.size === 0) return null;
+    const levels = new Set<string>();
+    sales.forEach(s => {
+      if (selectedIds.has(s.id)) levels.add(s.currentLevel);
+    });
+    return levels.size === 1 ? Array.from(levels)[0] : null;
+  }, [selectedIds, sales]);
+
+  const levelRoleMap2: Record<string, string[]> = {
+    director: ['director'],
+    committee: ['curator', 'director'],
+    financial: ['keeper', 'director'],
+  };
+
+  const batchColleagues = useMemo(() => {
+    if (!commonLevel) return [];
+    return users.filter(u =>
+      u.id !== currentUser.id &&
+      levelRoleMap2[commonLevel]?.includes(u.role)
+    );
+  }, [users, currentUser.id, commonLevel]);
 
   const pendingCount = getPendingCountForCurrentUser();
   
@@ -197,6 +276,55 @@ export default function Sales() {
       setSelectedSale(sale);
       setShowDetailModal(true);
     }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(selectableSales.map(s => s.id)));
+    }
+  };
+
+  const handleBatchApprove = () => {
+    if (selectedIds.size === 0 || !commonLevel) return;
+    batchApproveSales(Array.from(selectedIds), commonLevel as ApprovalLevel, batchComment);
+    setSelectedIds(new Set());
+    setBatchAction(null);
+    setBatchComment('');
+  };
+
+  const handleBatchReject = () => {
+    if (selectedIds.size === 0 || !commonLevel) return;
+    batchRejectSales(Array.from(selectedIds), commonLevel as ApprovalLevel, batchComment);
+    setSelectedIds(new Set());
+    setBatchAction(null);
+    setBatchComment('');
+  };
+
+  const handleBatchDelegate = () => {
+    if (selectedIds.size === 0 || !batchDelegateUserId) return;
+    const targetUser = users.find(u => u.id === batchDelegateUserId);
+    if (targetUser) {
+      Array.from(selectedIds).forEach(id => {
+        delegateSale(id, targetUser.id, targetUser.name);
+      });
+    }
+    setSelectedIds(new Set());
+    setShowBatchDelegate(false);
+    setBatchDelegateUserId('');
   };
 
   return (
@@ -246,9 +374,158 @@ export default function Sales() {
         </div>
       </div>
 
+      {selectedIds.size > 0 && (
+        <div className="mb-6 p-4 rounded-xl bg-gradient-to-r from-gold-500/10 to-amber-500/10 border border-gold-500/30 dark:border-gold-500/30">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <CheckSquare className="w-5 h-5 text-gold-500" />
+              <span className="font-medium text-ink-800 dark:text-ink-100">
+                已选择 <span className="text-gold-500 font-bold">{selectedIds.size}</span> 个申请
+                {commonLevel && (
+                  <span className="ml-2 text-sm text-ink-500 dark:text-ink-400">
+                    （同一审批级别：{commonLevel === 'director' ? '馆长审批' : commonLevel === 'committee' ? '委员会审批' : '财务审批'}）
+                  </span>
+                )}
+                {!commonLevel && selectedIds.size > 1 && (
+                  <span className="ml-2 text-sm text-orange-500 flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    请选择同一审批级别的申请
+                  </span>
+                )}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="px-3 py-1.5 text-sm text-ink-500 dark:text-ink-400 hover:text-ink-700 dark:hover:text-ink-200 flex items-center gap-1 rounded-lg hover:bg-ink-100 dark:hover:bg-ink-700/50 transition-colors"
+              >
+                <X className="w-4 h-4" />
+                清空选择
+              </button>
+              {commonLevel && (
+                <>
+                  {batchColleagues.length > 0 && (
+                    <button
+                      onClick={() => { setShowBatchDelegate(!showBatchDelegate); setBatchAction(null); }}
+                      className={cn(
+                        'px-4 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors',
+                        showBatchDelegate
+                          ? 'bg-violet-500 text-white'
+                          : 'border border-violet-300 dark:border-violet-500/30 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-500/10'
+                      )}
+                    >
+                      <Share2 className="w-4 h-4" />
+                      批量转交
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { setBatchAction('reject'); setShowBatchDelegate(false); }}
+                    className={cn(
+                      'px-4 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors',
+                      batchAction === 'reject'
+                        ? 'bg-red-500 text-white'
+                        : 'border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10'
+                    )}
+                  >
+                    <XCircle className="w-4 h-4" />
+                    批量驳回
+                  </button>
+                  <button
+                    onClick={() => { setBatchAction('approve'); setShowBatchDelegate(false); }}
+                    className={cn(
+                      'px-4 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors',
+                      batchAction === 'approve'
+                        ? 'bg-emerald-500 text-white'
+                        : 'border border-emerald-300 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10'
+                    )}
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    批量通过
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {showBatchDelegate && batchColleagues.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-gold-500/20 space-y-3">
+              <p className="text-sm text-ink-600 dark:text-ink-300 flex items-center gap-2">
+                <User className="w-4 h-4" />
+                选择同角色同事临时处理这些申请：
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {batchColleagues.map(colleague => (
+                  <button
+                    key={colleague.id}
+                    onClick={() => setBatchDelegateUserId(colleague.id)}
+                    className={cn(
+                      'px-4 py-2 rounded-lg text-sm font-medium border transition-all flex items-center gap-2',
+                      batchDelegateUserId === colleague.id
+                        ? 'bg-violet-500 text-white border-violet-500 ring-2 ring-violet-500/30'
+                        : 'bg-white dark:bg-ink-700/50 border-ink-200 dark:border-ink-600 text-ink-600 dark:text-ink-300 hover:border-violet-300 dark:hover:border-violet-500/50'
+                    )}
+                  >
+                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-gold-400 to-amber-600 flex items-center justify-center text-white text-xs font-semibold">
+                      {colleague.name.charAt(0)}
+                    </div>
+                    {colleague.name}
+                    <span className="text-xs opacity-70">({getRoleText(colleague.role)})</span>
+                  </button>
+                ))}
+              </div>
+              {batchDelegateUserId && (
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => { setShowBatchDelegate(false); setBatchDelegateUserId(''); }}
+                    className="px-4 py-2 text-sm text-ink-500 hover:text-ink-700 dark:hover:text-ink-300"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={handleBatchDelegate}
+                    className="px-5 py-2 rounded-lg bg-violet-500 text-white text-sm font-medium hover:bg-violet-600 transition-colors"
+                  >
+                    确认批量转交
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {batchAction && (
+            <div className="mt-4 pt-4 border-t border-gold-500/20 space-y-3">
+              <textarea
+                value={batchComment}
+                onChange={(e) => setBatchComment(e.target.value)}
+                placeholder="批量审批意见（可选，所有选中申请都会记录）"
+                rows={2}
+                className="w-full px-4 py-2.5 rounded-lg bg-white dark:bg-ink-700/50 border border-ink-200 dark:border-ink-600 text-ink-700 dark:text-ink-200 focus:outline-none focus:ring-2 focus:ring-gold-500/50 resize-none text-sm"
+              />
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => { setBatchAction(null); setBatchComment(''); }}
+                  className="px-4 py-2 text-sm text-ink-500 hover:text-ink-700 dark:hover:text-ink-300"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={batchAction === 'approve' ? handleBatchApprove : handleBatchReject}
+                  className={cn(
+                    'px-5 py-2 rounded-lg text-white text-sm font-medium transition-colors',
+                    batchAction === 'approve' ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-red-500 hover:bg-red-600'
+                  )}
+                >
+                  确认批量{batchAction === 'approve' ? '通过' : '驳回'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="bg-white dark:bg-ink-800/50 rounded-xl p-4 border border-ink-200 dark:border-ink-700/50 mb-6">
         <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 items-center">
             {canApprove && (
               <>
               <div className="flex items-center gap-1 rounded-lg border border-gold-500/50 overflow-hidden">
@@ -280,6 +557,20 @@ export default function Sales() {
                 全部申请
               </button>
             </div>
+            {viewMode === 'mine' && selectableSales.length > 0 && (
+              <button
+                onClick={toggleSelectAll}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors flex items-center gap-1.5',
+                  selectedIds.size > 0
+                    ? 'bg-gold-100 text-gold-700 dark:bg-gold-500/20 dark:text-gold-400 border-gold-300 dark:border-gold-500/30'
+                    : 'border-ink-200 dark:border-ink-600 text-ink-600 dark:text-ink-300 hover:bg-ink-50 dark:hover:bg-ink-700'
+                )}
+              >
+                {selectedIds.size > 0 ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                {selectedIds.size > 0 ? '取消全选' : '全选同级'}
+              </button>
+            )}
             </>
             )}
 
@@ -333,7 +624,14 @@ export default function Sales() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {filteredSales.map((sale) => (
-          <SaleCard key={sale.id} sale={sale} onView={handleView} />
+          <SaleCard
+            key={sale.id}
+            sale={sale}
+            onView={handleView}
+            selectable={viewMode === 'mine' && isMyApproval(sale)}
+            selected={selectedIds.has(sale.id)}
+            onToggleSelect={toggleSelect}
+          />
         ))}
       </div>
 

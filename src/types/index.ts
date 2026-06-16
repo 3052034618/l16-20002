@@ -126,6 +126,9 @@ export interface SaleRecord {
   escalated: boolean;
   lastUpdate: string;
   notes?: string;
+  delegatedTo?: string;
+  delegatedToId?: string;
+  delegatedAt?: string;
 }
 
 export type TaskType = 'installation' | 'lighting' | 'packaging' | 'transportation' | 'security';
@@ -203,7 +206,9 @@ export interface WorkOrder {
   id: string;
   alertId: string;
   type: string;
-  status: 'open' | 'in_progress' | 'resolved';
+  title?: string;
+  hallName?: string;
+  status: 'open' | 'pending' | 'processing' | 'in_progress' | 'resolved';
   assignee: string;
   assigneeId?: string;
   createdAt: string;
@@ -355,4 +360,33 @@ export interface DashboardView {
   visibleWidgets: string[];
   createdAt: string;
   createdBy: string;
+}
+
+export interface WidgetConfig {
+  id: string;
+  name: string;
+  category: 'stat' | 'chart' | 'section';
+  icon: string;
+  defaultVisible: boolean;
+}
+
+export interface WorkOrderSLAInfo {
+  workOrderId: string;
+  alertLevel: AlertLevel;
+  remainingSeconds: number;
+  totalSeconds: number;
+  deadline: Date;
+  riskLevel: 'safe' | 'warning' | 'danger' | 'overdue';
+  assignee?: string;
+  assigneeId?: string;
+}
+
+export interface AssigneeWorkload {
+  assigneeId?: string;
+  assignee: string;
+  totalCount: number;
+  safeCount: number;
+  warningCount: number;
+  dangerCount: number;
+  overdueCount: number;
 }

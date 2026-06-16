@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Thermometer,
   Droplets,
@@ -11,11 +11,16 @@ import {
   Wrench,
   MapPin,
   ListTodo,
+  TimerReset,
+  User,
+  Gauge,
+  TrendingDown,
+  Users,
 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { cn, formatRelativeTime } from '@/utils';
 import { WorkOrderModal, WorkOrderListModal } from '@/components/forms/WorkOrderModal';
-import type { Alert } from '@/types';
+import type { Alert, WorkOrderSLAInfo } from '@/types';
 import {
   AreaChart,
   Area,
@@ -145,10 +150,41 @@ function SensorCard({ sensor }: { sensor: any }) {
   );
 }
 
-function AlertItem({ alert, onHandle, onViewWorkOrder }: { 
+function formatSlaTime(seconds: number): string {
+  if (seconds < 0) {
+    const abs = Math.abs(seconds);
+    const m = Math.floor(abs / 60);
+    const s = Math.floor(abs % 60);
+    return `超 ${m}分${s}秒`;
+  }
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}分${s}秒`;
+}
+
+function getSlaRiskColor(risk: WorkOrderSLAInfo['riskLevel']): string {
+  switch (risk) {
+    case 'safe': return 'text-emerald-500 bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/20';
+    case 'warning': return 'text-amber-500 bg-amber-100 dark:text-amber-400 dark:bg-amber-500/20';
+    case 'danger': return 'text-red-500 bg-red-100 dark:text-red-400 dark:bg-red-500/20';
+    case 'overdue': return 'text-red-700 bg-red-200 dark:text-red-300 dark:bg-red-600/30';
+  }
+}
+
+function getSlaRiskLabel(risk: WorkOrderSLAInfo['riskLevel']): string {
+  switch (risk) {
+    case 'safe': return '安全';
+    case 'warning': return '关注';
+    case 'danger': return '紧急';
+    case 'overdue': return '已超时';
+  }
+}
+
+function AlertItem({ alert, onHandle, onViewWorkOrder, sla }: { 
   alert: any; 
   onHandle: (alert: Alert) => void;
   onViewWorkOrder: () => void;
+  sla?: WorkOrderSLAInfo;
 }) {
   const levelColors = {
     warning: 'border-l-amber-500 bg-amber-50 dark:bg-amber-500/5',
@@ -178,7 +214,7 @@ function AlertItem({ alert, onHandle, onViewWorkOrder }: {
             )}
           />
           <div>
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <h4 className="font-medium text-ink-800 dark:text-ink-100">
                 {alert.hallName} - {alert.type}
               </h4>
@@ -192,6 +228,27 @@ function AlertItem({ alert, onHandle, onViewWorkOrder }: {
               >
                 {levelLabels[alert.level as keyof typeof levelLabels]}
               </span>
+              {sla && (
+                <>
+                  <span
+                    className={cn(
+                      'text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1',
+                      getSlaRiskColor(sla.riskLevel)
+                    )}
+                  >
+                    <TimerReset className="w-3 h-3" />
+                    {formatSlaTime(sla.remainingSeconds)}
+                  </span>
+                  <span
+                    className={cn(
+                      'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
+                      getSlaRiskColor(sla.riskLevel)
+                    )}
+                  >
+                    {getSlaRiskLabel(sla.riskLevel)}
+                  </span>
+                </>
+              )}
             </div>
             <p className="text-sm text-ink-500 dark:text-ink-400">
               {alert.message}
@@ -199,6 +256,12 @@ function AlertItem({ alert, onHandle, onViewWorkOrder }: {
             <p className="text-xs text-ink-400 mt-2">
               当前值: {alert.value} (阈值: {alert.threshold})
             </p>
+            {sla && sla.assignee && (
+              <p className="text-xs text-ink-400 mt-1 flex items-center gap-1">
+                <User className="w-3 h-3" />
+                负责人: {sla.assignee}
+              </p>
+            )}
           </div>
         </div>
         <button className="text-xs text-ink-400">
@@ -237,17 +300,19 @@ function AlertItem({ alert, onHandle, onViewWorkOrder }: {
 }
 
 export default function Environment() {
-  const { sensors, alerts, checkAndEscalateAlerts, workOrders } = useAppStore();
+  const { sensors, alerts, checkAndEscalateAlerts, workOrders, getWorkOrderSLA, getAssigneeWorkload } = useAppStore();
   const [selectedSensor, setSelectedSensor] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [showWorkOrderModal, setShowWorkOrderModal] = useState(false);
   const [showWorkOrderListModal, setShowWorkOrderListModal] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
   const [workOrderAlertId, setWorkOrderAlertId] = useState<string | null>(null);
+  const [, setTick] = useState(0);
 
   useEffect(() => {
     const interval = setInterval(() => {
       setLastUpdate(new Date());
+      setTick(t => t + 1);
       checkAndEscalateAlerts();
     }, 5000);
     return () => clearInterval(interval);
@@ -259,6 +324,9 @@ export default function Environment() {
   };
 
   const activeAlerts = alerts.filter((a) => !a.resolvedAt);
+  const slaMap = useMemo(() => getWorkOrderSLA(), [getWorkOrderSLA, lastUpdate]);
+  const assigneeWorkload = useMemo(() => getAssigneeWorkload(), [getAssigneeWorkload, lastUpdate]);
+  const slaList = Object.values(slaMap).sort((a, b) => a.remainingSeconds - b.remainingSeconds);
 
   const avgTemperature = () => {
     const temps = sensors.map((s) => s.currentData.temperature);
@@ -400,6 +468,7 @@ export default function Environment() {
                   key={alert.id} 
                   alert={alert} 
                   onHandle={handleAlert}
+                  sla={alert.workOrderId ? slaMap[alert.workOrderId] : undefined}
                   onViewWorkOrder={() => {
                     setWorkOrderAlertId(alert.id);
                     setShowWorkOrderListModal(true);
@@ -472,6 +541,225 @@ export default function Environment() {
                 />
               </AreaChart>
             </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2">
+          <h2 className="text-lg font-display font-semibold text-ink-800 dark:text-ink-100 mb-4 flex items-center gap-2">
+            <Gauge className="w-5 h-5 text-gold-500" />
+            SLA 处理看板
+            <span className="text-xs text-ink-400 font-normal ml-2">
+              （warning:60分钟 / critical:30分钟 / escalated:15分钟）
+            </span>
+          </h2>
+          <div className="bg-white dark:bg-ink-800/50 rounded-xl p-4 border border-ink-200 dark:border-ink-700/50 max-h-[500px] overflow-y-auto">
+            {slaList.length > 0 ? (
+              <div className="space-y-3">
+                {slaList.map((sla) => {
+                  const workOrder = workOrders.find(w => w.id === sla.workOrderId);
+                  const alert = alerts.find(a => a.workOrderId === sla.workOrderId);
+                  const progress = Math.max(0, Math.min(100, 
+                    100 - (sla.remainingSeconds / sla.totalSeconds * 100)
+                  ));
+                  return (
+                    <div 
+                      key={sla.workOrderId}
+                      className={cn(
+                        'p-4 rounded-xl border transition-all',
+                        sla.riskLevel === 'overdue' 
+                          ? 'border-red-400 bg-red-50/80 dark:bg-red-900/20 dark:border-red-500/50'
+                          : sla.riskLevel === 'danger'
+                          ? 'border-red-300 bg-red-50 dark:bg-red-500/10 dark:border-red-500/30'
+                          : sla.riskLevel === 'warning'
+                          ? 'border-amber-300 bg-amber-50 dark:bg-amber-500/10 dark:border-amber-500/30'
+                          : 'border-ink-200 dark:border-ink-700'
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                          <div className={cn(
+                            'w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
+                            sla.riskLevel === 'overdue' || sla.riskLevel === 'danger'
+                              ? 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400'
+                              : sla.riskLevel === 'warning'
+                              ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400'
+                              : 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                          )}>
+                            {sla.riskLevel === 'overdue' ? (
+                              <TrendingDown className="w-5 h-5" />
+                            ) : (
+                              <Clock className="w-5 h-5" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                              <h4 className="font-medium text-ink-800 dark:text-ink-100 truncate">
+                                {alert?.hallName || workOrder?.hallName || '未知展厅'}
+                                {' - '}
+                                {workOrder?.title || alert?.type || '环境异常'}
+                              </h4>
+                              <span className={cn(
+                                'text-xs px-2 py-0.5 rounded-full font-medium',
+                                getSlaRiskColor(sla.riskLevel)
+                              )}>
+                                {getSlaRiskLabel(sla.riskLevel)}
+                              </span>
+                              <span className={cn(
+                                'text-xs px-2 py-0.5 rounded-full font-medium',
+                                sla.alertLevel === 'warning'
+                                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+                                  : sla.alertLevel === 'critical'
+                                  ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
+                                  : 'bg-red-200 text-red-800 dark:bg-red-600/30 dark:text-red-300'
+                              )}>
+                                {sla.alertLevel === 'warning' ? '警告级' : sla.alertLevel === 'critical' ? '严重级' : '已升级'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-ink-500 dark:text-ink-400 flex items-center gap-3 flex-wrap">
+                              <span className="flex items-center gap-1">
+                                <MapPin className="w-3 h-3" />
+                                {alert?.message || workOrder?.description || ''}
+                              </span>
+                              {workOrder && (
+                                <span className="flex items-center gap-1">
+                                  <User className="w-3 h-3" />
+                                  {sla.assignee || '未指派'}
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className={cn(
+                            'text-2xl font-display font-bold tabular-nums',
+                            sla.riskLevel === 'overdue' || sla.riskLevel === 'danger'
+                              ? 'text-red-600 dark:text-red-400'
+                              : sla.riskLevel === 'warning'
+                              ? 'text-amber-600 dark:text-amber-400'
+                              : 'text-emerald-600 dark:text-emerald-400'
+                          )}>
+                            {formatSlaTime(sla.remainingSeconds)}
+                          </p>
+                          <p className="text-xs text-ink-400 mt-1">
+                            截止 {sla.deadline.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="h-2 rounded-full bg-ink-100 dark:bg-ink-700 overflow-hidden">
+                        <div 
+                          className={cn(
+                            'h-full rounded-full transition-all duration-500',
+                            sla.riskLevel === 'overdue' || sla.riskLevel === 'danger'
+                              ? 'bg-gradient-to-r from-red-400 to-red-600'
+                              : sla.riskLevel === 'warning'
+                              ? 'bg-gradient-to-r from-amber-400 to-amber-500'
+                              : 'bg-gradient-to-r from-emerald-400 to-emerald-500'
+                          )}
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between mt-1.5 text-[10px] text-ink-400">
+                        <span>已处理 {progress.toFixed(0)}%</span>
+                        <span>
+                          {workOrder?.status === 'processing' ? '处理中' : 
+                           workOrder?.status === 'pending' ? '待处理' : 
+                           workOrder?.status || '待处理'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <Gauge className="w-12 h-12 mx-auto mb-3 text-emerald-400" />
+                <p className="text-ink-500 dark:text-ink-400 text-sm font-medium">暂无待处理工单</p>
+                <p className="text-ink-400 text-xs mt-1">所有工单均在正常 SLA 范围内</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <h2 className="text-lg font-display font-semibold text-ink-800 dark:text-ink-100 mb-4 flex items-center gap-2">
+            <Users className="w-5 h-5 text-gold-500" />
+            负责人负载
+          </h2>
+          <div className="bg-white dark:bg-ink-800/50 rounded-xl p-4 border border-ink-200 dark:border-ink-700/50 space-y-4">
+            {assigneeWorkload.length > 0 ? (
+              assigneeWorkload.map((workload) => {
+                const loadPercent = Math.min(100, (workload.totalCount / 5) * 100);
+                const isOverloaded = workload.overdueCount > 0 || workload.totalCount >= 4;
+                return (
+                  <div key={workload.assigneeId || 'unassigned'} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-gold-400 to-amber-600 flex items-center justify-center text-white text-sm font-semibold">
+                          {(workload.assignee || '待')[0]}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-ink-800 dark:text-ink-100">
+                            {workload.assignee || '待指派'}
+                          </p>
+                          <p className="text-[10px] text-ink-400">
+                            共 {workload.totalCount} 单
+                            {workload.overdueCount > 0 && (
+                              <span className="text-red-500 ml-1">· {workload.overdueCount} 超时</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className={cn(
+                          'inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium',
+                          isOverloaded
+                            ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400'
+                            : workload.totalCount >= 2
+                            ? 'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400'
+                            : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400'
+                        )}>
+                          {isOverloaded ? '高负载' : workload.totalCount >= 2 ? '中负载' : '空闲'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="h-2 rounded-full bg-ink-100 dark:bg-ink-700 overflow-hidden">
+                      <div 
+                        className={cn(
+                          'h-full rounded-full transition-all',
+                          isOverloaded
+                            ? 'bg-gradient-to-r from-red-400 to-red-500'
+                            : workload.totalCount >= 2
+                            ? 'bg-gradient-to-r from-amber-400 to-amber-500'
+                            : 'bg-gradient-to-r from-emerald-400 to-emerald-500'
+                        )}
+                        style={{ width: `${loadPercent}%` }}
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-[10px] text-ink-400">
+                      <div>
+                        <p className="text-emerald-500 dark:text-emerald-400 font-medium">{workload.safeCount}</p>
+                        <p>安全</p>
+                      </div>
+                      <div>
+                        <p className="text-amber-500 dark:text-amber-400 font-medium">{workload.warningCount + workload.dangerCount}</p>
+                        <p>风险</p>
+                      </div>
+                      <div>
+                        <p className="text-red-500 dark:text-red-400 font-medium">{workload.overdueCount}</p>
+                        <p>超时</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-center py-8">
+                <Users className="w-10 h-10 mx-auto mb-2 text-ink-300 dark:text-ink-600" />
+                <p className="text-ink-500 dark:text-ink-400 text-sm">暂无负载数据</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
