@@ -13,6 +13,7 @@ import type {
   DashboardData,
   ValuationRules,
   FilterOptions,
+  WorkOrder,
 } from '@/types';
 import {
   mockUsers,
@@ -28,6 +29,7 @@ import {
   mockValuationRules,
   mockArtists,
 } from '@/data/mockData';
+import { generateId, generateDigitalFingerprint, calculateValuation } from '@/utils';
 
 interface AppState {
   currentUser: User;
@@ -38,6 +40,7 @@ interface AppState {
   tasks: InstallTask[];
   sensors: Sensor[];
   alerts: Alert[];
+  workOrders: WorkOrder[];
   transports: Transport[];
   insurances: Insurance[];
   dashboardData: DashboardData;
@@ -53,23 +56,37 @@ interface AppState {
   toggleDarkMode: () => void;
   toggleSidebar: () => void;
   setFilters: (filters: Partial<FilterOptions>) => void;
+  resetFilters: () => void;
   
   updateArtwork: (id: string, updates: Partial<Artwork>) => void;
-  addArtwork: (artwork: Artwork) => void;
+  addArtwork: (artwork: Omit<Artwork, 'id' | 'createdAt' | 'status' | 'exhibitionHistory'>) => void;
   
   updateExhibition: (id: string, updates: Partial<Exhibition>) => void;
   addExhibition: (exhibition: Exhibition) => void;
   
   updateSale: (id: string, updates: Partial<SaleRecord>) => void;
+  addSale: (sale: Omit<SaleRecord, 'id' | 'createdAt' | 'lastUpdate' | 'status' | 'currentLevel' | 'escalated'>) => void;
   approveSale: (saleId: string, level: string, comment?: string) => void;
+  rejectSale: (saleId: string, level: string, comment?: string) => void;
+  escalateOverdueSales: () => void;
   
   updateTask: (id: string, updates: Partial<InstallTask>) => void;
   
   resolveAlert: (id: string) => void;
+  escalateAlert: (id: string) => void;
+  adjustEquipment: (alertId: string) => void;
+  createWorkOrder: (alertId: string, description: string) => void;
+  updateWorkOrder: (id: string, updates: Partial<WorkOrder>) => void;
+  checkAndEscalateAlerts: () => void;
   
   updateDashboardData: () => void;
+  recalculateDashboardData: () => void;
+  
+  updateValuationRules: (rules: Partial<ValuationRules>) => void;
   
   hasPermission: (requiredRole: UserRole) => boolean;
+  getFilteredArtworks: () => Artwork[];
+  getFilteredDashboardData: () => DashboardData;
 }
 
 const roleHierarchy: Record<UserRole, number> = {
@@ -78,6 +95,8 @@ const roleHierarchy: Record<UserRole, number> = {
   keeper: 3,
   director: 4,
 };
+
+const initialWorkOrders: WorkOrder[] = [];
 
 export const useAppStore = create<AppState>((set, get) => ({
   currentUser: mockUsers[0],
@@ -88,6 +107,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   tasks: mockTasks,
   sensors: mockSensors,
   alerts: mockAlerts,
+  workOrders: initialWorkOrders,
   transports: mockTransports,
   insurances: mockInsurances,
   dashboardData: mockDashboardData,
@@ -113,19 +133,50 @@ export const useAppStore = create<AppState>((set, get) => ({
   
   toggleSidebar: () => set({ sidebarCollapsed: !get().sidebarCollapsed }),
   
-  setFilters: (filters) => set({ filters: { ...get().filters, ...filters } }),
+  setFilters: (filters) => {
+    set({ filters: { ...get().filters, ...filters } });
+    setTimeout(() => get().recalculateDashboardData(), 0);
+  },
+  
+  resetFilters: () => set({ filters: {} }),
 
-  updateArtwork: (id, updates) =>
+  updateArtwork: (id, updates) => {
     set({
       artworks: get().artworks.map((a) =>
         a.id === id ? { ...a, ...updates } : a
       ),
-    }),
+    });
+    setTimeout(() => get().recalculateDashboardData(), 0);
+  },
 
-  addArtwork: (artwork) =>
+  addArtwork: (artworkData) => {
+    const artist = get().artists.find(a => a.id === artworkData.artistId);
+    const valuation = calculateValuation(
+      artist?.reputationScore || 50,
+      artist?.totalSales || 0,
+      artworkData.material,
+      artworkData.category,
+      get().valuationRules
+    );
+    
+    const newArtwork: Artwork = {
+      ...artworkData,
+      id: generateId(),
+      createdAt: new Date().toISOString(),
+      status: 'in_storage',
+      exhibitionHistory: [],
+      valuation: {
+        low: valuation.low,
+        high: valuation.high,
+        lastUpdated: new Date().toISOString(),
+      },
+    };
+    
     set({
-      artworks: [...get().artworks, artwork],
-    }),
+      artworks: [...get().artworks, newArtwork],
+    });
+    setTimeout(() => get().recalculateDashboardData(), 0);
+  },
 
   updateExhibition: (id, updates) =>
     set({
@@ -139,12 +190,36 @@ export const useAppStore = create<AppState>((set, get) => ({
       exhibitions: [...get().exhibitions, exhibition],
     }),
 
-  updateSale: (id, updates) =>
+  updateSale: (id, updates) => {
     set({
       sales: get().sales.map((s) =>
         s.id === id ? { ...s, ...updates } : s
       ),
-    }),
+    });
+    setTimeout(() => get().recalculateDashboardData(), 0);
+  },
+
+  addSale: (saleData) => {
+    const newSale: SaleRecord = {
+      ...saleData,
+      id: generateId(),
+      createdAt: new Date().toISOString(),
+      lastUpdate: new Date().toISOString(),
+      status: 'pending',
+      currentLevel: 'director',
+      escalated: false,
+      approvals: [
+        { level: 'director', status: 'pending' },
+        { level: 'committee', status: 'pending' },
+        { level: 'financial', status: 'pending' },
+      ],
+    };
+    
+    set({
+      sales: [...get().sales, newSale],
+    });
+    setTimeout(() => get().recalculateDashboardData(), 0);
+  },
 
   approveSale: (saleId, level, comment) => {
     const state = get();
@@ -194,6 +269,80 @@ export const useAppStore = create<AppState>((set, get) => ({
           : s
       ),
     });
+    setTimeout(() => get().recalculateDashboardData(), 0);
+  },
+
+  rejectSale: (saleId, level, comment) => {
+    const state = get();
+    const sale = state.sales.find((s) => s.id === saleId);
+    if (!sale) return;
+
+    const newApprovals = sale.approvals.map((a) => {
+      if (a.level === level) {
+        return {
+          ...a,
+          status: 'rejected' as const,
+          approverName: state.currentUser.name,
+          approverId: state.currentUser.id,
+          comment,
+          timestamp: new Date().toISOString(),
+        };
+      }
+      return a;
+    });
+
+    set({
+      sales: state.sales.map((s) =>
+        s.id === saleId
+          ? {
+              ...s,
+              approvals: newApprovals,
+              status: 'rejected',
+              lastUpdate: new Date().toISOString(),
+            }
+          : s
+      ),
+    });
+    setTimeout(() => get().recalculateDashboardData(), 0);
+  },
+
+  escalateOverdueSales: () => {
+    const state = get();
+    const now = new Date();
+    
+    const updatedSales = state.sales.map((sale) => {
+      if (sale.status === 'approved' || sale.status === 'rejected' || sale.escalated) {
+        return sale;
+      }
+      
+      const createdAt = new Date(sale.createdAt);
+      const hoursPassed = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+      
+      if (hoursPassed > 48) {
+        const levelOrder = ['director', 'committee', 'financial'];
+        const currentIndex = levelOrder.indexOf(sale.currentLevel);
+        const nextLevel = currentIndex < 2 ? levelOrder[currentIndex + 1] : sale.currentLevel;
+        
+        const newApprovals = sale.approvals.map((a) => {
+          if (a.level === sale.currentLevel && a.status === 'pending') {
+            return { ...a, status: 'escalated' as const };
+          }
+          return a;
+        });
+        
+        return {
+          ...sale,
+          escalated: true,
+          currentLevel: nextLevel as SaleRecord['currentLevel'],
+          approvals: newApprovals,
+          lastUpdate: new Date().toISOString(),
+        };
+      }
+      
+      return sale;
+    });
+    
+    set({ sales: updatedSales });
   },
 
   updateTask: (id, updates) =>
@@ -203,14 +352,114 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     }),
 
-  resolveAlert: (id) =>
+  resolveAlert: (id) => {
     set({
       alerts: get().alerts.map((a) =>
         a.id === id
-          ? { ...a, resolvedAt: new Date().toISOString() }
+          ? { ...a, resolvedAt: new Date().toISOString(), duration: Math.floor((new Date().getTime() - new Date(a.startTime).getTime()) / 60000) }
           : a
       ),
-    }),
+    });
+    setTimeout(() => get().recalculateDashboardData(), 0);
+  },
+
+  escalateAlert: (id) => {
+    set({
+      alerts: get().alerts.map((a) =>
+        a.id === id && !a.resolvedAt
+          ? { ...a, level: 'escalated' as const }
+          : a
+      ),
+    });
+  },
+
+  adjustEquipment: (alertId) => {
+    const state = get();
+    const alert = state.alerts.find(a => a.id === alertId);
+    if (!alert) return;
+    
+    const sensor = state.sensors.find(s => s.id === alert.sensorId);
+    if (sensor) {
+      const newData = { ...sensor.currentData };
+      if (alert.type === '温度超标') {
+        newData.temperature = 22;
+      } else if (alert.type === '湿度过高') {
+        newData.humidity = 50;
+      } else if (alert.type === '紫外线超标') {
+        newData.uvIndex = 0.5;
+      }
+      
+      set({
+        sensors: state.sensors.map(s => 
+          s.id === sensor.id
+            ? { ...s, status: 'normal', currentData: { ...newData, timestamp: new Date().toISOString() } }
+            : s
+        ),
+      });
+    }
+    
+    get().resolveAlert(alertId);
+  },
+
+  createWorkOrder: (alertId, description) => {
+    const state = get();
+    const alert = state.alerts.find(a => a.id === alertId);
+    if (!alert) return;
+    
+    const workOrder: WorkOrder = {
+      id: generateId(),
+      alertId,
+      type: alert.type,
+      status: 'open',
+      assignee: state.currentUser.name,
+      createdAt: new Date().toISOString(),
+      description,
+    };
+    
+    set({
+      workOrders: [...state.workOrders, workOrder],
+      alerts: state.alerts.map(a =>
+        a.id === alertId ? { ...a, workOrderId: workOrder.id } : a
+      ),
+    });
+  },
+
+  updateWorkOrder: (id, updates) => {
+    const state = get();
+    const workOrder = state.workOrders.find(w => w.id === id);
+    if (!workOrder) return;
+    
+    const updatedWorkOrder = { ...workOrder, ...updates };
+    
+    if (updates.status === 'resolved') {
+      updatedWorkOrder.resolvedAt = new Date().toISOString();
+      if (workOrder.alertId) {
+        get().resolveAlert(workOrder.alertId);
+      }
+    }
+    
+    set({
+      workOrders: state.workOrders.map(w =>
+        w.id === id ? updatedWorkOrder : w
+      ),
+    });
+  },
+
+  checkAndEscalateAlerts: () => {
+    const state = get();
+    const now = new Date();
+    
+    state.alerts.forEach(alert => {
+      if (!alert.resolvedAt && alert.level !== 'escalated') {
+        const startTime = new Date(alert.startTime);
+        const minutesPassed = (now.getTime() - startTime.getTime()) / 60000;
+        
+        if (minutesPassed > 30) {
+          get().escalateAlert(alert.id);
+        }
+      }
+    });
+  },
 
   updateDashboardData: () => {
     const state = get();
@@ -232,8 +481,120 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ dashboardData: newData });
   },
 
+  recalculateDashboardData: () => {
+    const state = get();
+    const { filters, artworks, sales, alerts, exhibitions, transports, sensors } = state;
+    
+    let filteredArtworks = [...artworks];
+    let filteredSales = [...sales];
+    let filteredAlerts = [...alerts];
+    let filteredExhibitions = [...exhibitions];
+    let filteredTransports = [...transports];
+    
+    if (filters.artist) {
+      filteredArtworks = filteredArtworks.filter(a => a.artistId === filters.artist);
+      filteredSales = filteredSales.filter(s => {
+        const artwork = artworks.find(a => a.id === s.artworkId);
+        return artwork?.artistId === filters.artist;
+      });
+    }
+    
+    if (filters.exhibition) {
+      const exhibition = exhibitions.find(e => e.id === filters.exhibition);
+      if (exhibition) {
+        const artworkIds = exhibition.artworks.map(a => a.artworkId);
+        filteredArtworks = filteredArtworks.filter(a => artworkIds.includes(a.id));
+      }
+      filteredExhibitions = filteredExhibitions.filter(e => e.id === filters.exhibition);
+    }
+    
+    if (filters.dateRange) {
+      const start = new Date(filters.dateRange.start);
+      const end = new Date(filters.dateRange.end);
+      
+      filteredSales = filteredSales.filter(s => {
+        const date = new Date(s.createdAt);
+        return date >= start && date <= end;
+      });
+      
+      filteredAlerts = filteredAlerts.filter(a => {
+        const date = new Date(a.startTime);
+        return date >= start && date <= end;
+      });
+    }
+    
+    const pendingCount = filteredSales.filter(s => 
+      s.status !== 'approved' && s.status !== 'rejected'
+    ).length;
+    
+    const activeExhibitions = filteredExhibitions.filter(e => 
+      e.status === 'ongoing' || e.status === 'installing'
+    ).length;
+    
+    const inTransitCount = filteredTransports.filter(t => 
+      t.status === 'in_transit' || t.status === 'delayed'
+    ).length;
+    
+    const totalValue = filteredArtworks.reduce(
+      (sum, a) => sum + a.valuation.high,
+      0
+    );
+    
+    const normalSensors = sensors.filter(s => s.status === 'normal').length;
+    const warningSensors = sensors.filter(s => s.status === 'warning' || s.status === 'error').length;
+    
+    const activeAlerts = filteredAlerts.filter(a => !a.resolvedAt);
+    
+    const oldData = state.dashboardData;
+    const newData: DashboardData = {
+      ...oldData,
+      overview: {
+        totalArtworks: filteredArtworks.length,
+        activeExhibitions,
+        inTransit: inTransitCount,
+        totalValue,
+        todayVisitors: oldData.overview.todayVisitors,
+        pendingApprovals: pendingCount,
+      },
+      halls: filters.exhibition 
+        ? oldData.halls.filter(h => filteredExhibitions.some(e => e.hallId === h.hallId))
+        : oldData.halls,
+      environment: {
+        ...oldData.environment,
+        overallCompliance: sensors.length > 0 ? (normalSensors / sensors.length) * 100 : 100,
+        normalHalls: normalSensors,
+        warningHalls: warningSensors,
+        alertsToday: activeAlerts.length,
+      },
+      recentAlerts: activeAlerts.slice(0, 5),
+    };
+    
+    set({ dashboardData: newData });
+  },
+
+  updateValuationRules: (rules) => {
+    set({
+      valuationRules: { ...get().valuationRules, ...rules },
+    });
+  },
+
   hasPermission: (requiredRole) => {
     const { currentUser } = get();
     return roleHierarchy[currentUser.role] >= roleHierarchy[requiredRole];
+  },
+
+  getFilteredArtworks: () => {
+    const state = get();
+    const { currentUser, artworks } = state;
+    
+    if (currentUser.role === 'artist') {
+      return artworks.filter(a => a.artistId === currentUser.id);
+    }
+    
+    return artworks;
+  },
+
+  getFilteredDashboardData: () => {
+    return get().dashboardData;
   },
 }));

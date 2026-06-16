@@ -1,4 +1,4 @@
-import { Bell, Search, Moon, Sun, User, ChevronDown, Download } from 'lucide-react';
+import { Bell, Search, Moon, Sun, User, ChevronDown, Download, LogOut, UserPlus, CheckCircle } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { cn, getRoleText } from '@/utils';
 import { useState } from 'react';
@@ -11,10 +11,17 @@ interface HeaderProps {
 }
 
 export default function Header({ title, subtitle, showExport, onExport }: HeaderProps) {
-  const { currentUser, darkMode, toggleDarkMode, dashboardData } = useAppStore();
+  const { currentUser, darkMode, toggleDarkMode, dashboardData, users, setCurrentUser } = useAppStore();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showSwitchUser, setShowSwitchUser] = useState(false);
 
   const pendingCount = dashboardData?.overview?.pendingApprovals || 0;
+
+  const handleSwitchUser = (user: typeof users[0]) => {
+    setCurrentUser(user);
+    setShowUserMenu(false);
+    setShowSwitchUser(false);
+  };
 
   return (
     <header className="h-16 bg-white dark:bg-ink-900 border-b border-ink-200 dark:border-ink-800 flex items-center justify-between px-6 sticky top-0 z-40">
@@ -89,11 +96,49 @@ export default function Header({ title, subtitle, showExport, onExport }: Header
                   {currentUser.name}
                 </p>
                 <p className="text-xs text-ink-400">{currentUser.email}</p>
+                <p className="text-xs text-gold-500 mt-1">{getRoleText(currentUser.role)}</p>
               </div>
-              <button className="w-full px-4 py-2 text-left text-sm text-ink-600 dark:text-ink-300 hover:bg-ink-50 dark:hover:bg-ink-700 transition-colors">
+              <button 
+                onClick={() => setShowSwitchUser(!showSwitchUser)}
+                className="w-full px-4 py-2 text-left text-sm text-ink-600 dark:text-ink-300 hover:bg-ink-50 dark:hover:bg-ink-700 transition-colors flex items-center gap-2"
+              >
+                <UserPlus className="w-4 h-4" />
+                切换身份
+              </button>
+              
+              {showSwitchUser && (
+                <div className="border-t border-ink-100 dark:border-ink-700 py-2">
+                  <p className="px-4 py-1 text-xs text-ink-400">选择身份登录</p>
+                  {users.map(user => (
+                    <button
+                      key={user.id}
+                      onClick={() => handleSwitchUser(user)}
+                      className={cn(
+                        'w-full px-4 py-2 text-left text-sm hover:bg-ink-50 dark:hover:bg-ink-700 transition-colors flex items-center gap-2',
+                        currentUser.id === user.id 
+                          ? 'bg-gold-50 dark:bg-gold-500/10 text-gold-600 dark:text-gold-400'
+                          : 'text-ink-600 dark:text-ink-300'
+                      )}
+                    >
+                      <img src={user.avatar} alt={user.name} className="w-6 h-6 rounded-full" />
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate">{user.name}</p>
+                        <p className="text-xs text-ink-400">{getRoleText(user.role)}</p>
+                      </div>
+                      {currentUser.id === user.id && (
+                        <CheckCircle className="w-4 h-4 text-gold-500" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+              
+              <button className="w-full px-4 py-2 text-left text-sm text-ink-600 dark:text-ink-300 hover:bg-ink-50 dark:hover:bg-ink-700 transition-colors flex items-center gap-2">
+                <User className="w-4 h-4" />
                 个人设置
               </button>
-              <button className="w-full px-4 py-2 text-left text-sm text-ink-600 dark:text-ink-300 hover:bg-ink-50 dark:hover:bg-ink-700 transition-colors">
+              <button className="w-full px-4 py-2 text-left text-sm text-ink-600 dark:text-ink-300 hover:bg-ink-50 dark:hover:bg-ink-700 transition-colors flex items-center gap-2">
+                <LogOut className="w-4 h-4" />
                 退出登录
               </button>
             </div>

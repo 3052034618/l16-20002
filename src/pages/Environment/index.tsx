@@ -10,9 +10,12 @@ import {
   RefreshCw,
   Wrench,
   MapPin,
+  ListTodo,
 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { cn, formatRelativeTime } from '@/utils';
+import { WorkOrderModal, WorkOrderListModal } from '@/components/forms/WorkOrderModal';
+import type { Alert } from '@/types';
 import {
   AreaChart,
   Area,
@@ -142,7 +145,11 @@ function SensorCard({ sensor }: { sensor: any }) {
   );
 }
 
-function AlertItem({ alert }: { alert: any }) {
+function AlertItem({ alert, onHandle, onViewWorkOrder }: { 
+  alert: any; 
+  onHandle: (alert: Alert) => void;
+  onViewWorkOrder: () => void;
+}) {
   const levelColors = {
     warning: 'border-l-amber-500 bg-amber-50 dark:bg-amber-500/5',
     critical: 'border-l-red-500 bg-red-50 dark:bg-red-500/5',
@@ -201,17 +208,26 @@ function AlertItem({ alert }: { alert: any }) {
 
       <div className="flex items-center gap-3 mt-3">
         {alert.workOrderId ? (
-          <button className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline">
+          <button 
+            onClick={onViewWorkOrder}
+            className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+          >
             <Wrench className="w-3.5 h-3.5" />
             查看工单
           </button>
         ) : (
-          <button className="flex items-center gap-1 text-xs text-gold-500 hover:underline">
+          <button 
+            onClick={() => onHandle(alert)}
+            className="flex items-center gap-1 text-xs text-gold-500 hover:underline"
+          >
             <Wrench className="w-3.5 h-3.5" />
             生成工单
           </button>
         )}
-        <button className="flex items-center gap-1 text-xs text-ink-500 hover:text-ink-700 dark:hover:text-ink-300">
+        <button 
+          onClick={() => onHandle(alert)}
+          className="flex items-center gap-1 text-xs text-ink-500 hover:text-ink-700 dark:hover:text-ink-300"
+        >
           <Settings className="w-3.5 h-3.5" />
           调节设备
         </button>
@@ -221,16 +237,25 @@ function AlertItem({ alert }: { alert: any }) {
 }
 
 export default function Environment() {
-  const { sensors, alerts } = useAppStore();
+  const { sensors, alerts, checkAndEscalateAlerts, workOrders } = useAppStore();
   const [selectedSensor, setSelectedSensor] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState(new Date());
+  const [showWorkOrderModal, setShowWorkOrderModal] = useState(false);
+  const [showWorkOrderListModal, setShowWorkOrderListModal] = useState(false);
+  const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => {
       setLastUpdate(new Date());
+      checkAndEscalateAlerts();
     }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [checkAndEscalateAlerts]);
+
+  const handleAlert = (alert: Alert) => {
+    setSelectedAlert(alert);
+    setShowWorkOrderModal(true);
+  };
 
   const activeAlerts = alerts.filter((a) => !a.resolvedAt);
 
@@ -271,6 +296,18 @@ export default function Environment() {
           <span className="text-xs text-ink-400">
             最后更新: {lastUpdate.toLocaleTimeString('zh-CN')}
           </span>
+          <button 
+            onClick={() => setShowWorkOrderListModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-ink-100 dark:bg-ink-700 text-ink-600 dark:text-ink-300 rounded-lg text-sm font-medium hover:bg-ink-200 dark:hover:bg-ink-600 transition-colors"
+          >
+            <ListTodo className="w-4 h-4" />
+            工单列表
+            {workOrders.filter(w => w.status !== 'resolved').length > 0 && (
+              <span className="w-5 h-5 rounded-full bg-amber-500 text-white text-xs flex items-center justify-center">
+                {workOrders.filter(w => w.status !== 'resolved').length}
+              </span>
+            )}
+          </button>
           <button className="flex items-center gap-2 px-4 py-2 bg-ink-100 dark:bg-ink-700 text-ink-600 dark:text-ink-300 rounded-lg text-sm font-medium hover:bg-ink-200 dark:hover:bg-ink-600 transition-colors">
             <RefreshCw className="w-4 h-4" />
             刷新
@@ -354,7 +391,14 @@ export default function Environment() {
           </h2>
           <div className="bg-white dark:bg-ink-800/50 rounded-xl p-4 border border-ink-200 dark:border-ink-700/50 max-h-[600px] overflow-y-auto">
             {activeAlerts.length > 0 ? (
-              activeAlerts.map((alert) => <AlertItem key={alert.id} alert={alert} />)
+              activeAlerts.map((alert) => (
+                <AlertItem 
+                  key={alert.id} 
+                  alert={alert} 
+                  onHandle={handleAlert}
+                  onViewWorkOrder={() => setShowWorkOrderListModal(true)}
+                />
+              ))
             ) : (
               <div className="text-center py-8">
                 <CheckCircle className="w-10 h-10 mx-auto mb-2 text-emerald-400" />
@@ -424,6 +468,17 @@ export default function Environment() {
           </div>
         </div>
       </div>
+
+      <WorkOrderModal
+        isOpen={showWorkOrderModal}
+        onClose={() => setShowWorkOrderModal(false)}
+        alert={selectedAlert}
+      />
+      
+      <WorkOrderListModal
+        isOpen={showWorkOrderListModal}
+        onClose={() => setShowWorkOrderListModal(false)}
+      />
     </div>
   );
 }

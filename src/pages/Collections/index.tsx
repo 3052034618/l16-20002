@@ -18,6 +18,7 @@ import {
   getStatusColor,
   getStatusText,
 } from '@/utils';
+import ArtworkFormModal from '@/components/forms/ArtworkFormModal';
 
 function ArtworkCard({ artwork, onView }: { artwork: any; onView: (id: string) => void }) {
   return (
@@ -75,11 +76,14 @@ function ArtworkCard({ artwork, onView }: { artwork: any; onView: (id: string) =
 }
 
 export default function Collections() {
-  const { artworks, setCurrentPage } = useAppStore();
+  const { getFilteredArtworks, currentUser, hasPermission } = useAppStore();
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
+  const [showFormModal, setShowFormModal] = useState(false);
+
+  const artworks = getFilteredArtworks();
 
   const categories = ['all', '油画', '国画', '雕塑', '摄影', '装置'];
   const statuses = ['all', 'in_storage', 'on_exhibition', 'on_loan', 'in_transport', 'sold'];
@@ -108,13 +112,15 @@ export default function Collections() {
             共 {filteredArtworks.length} 件藏品
           </p>
         </div>
-        <button
-          onClick={() => {}}
-          className="flex items-center gap-2 px-5 py-2.5 bg-gold-500 text-white rounded-lg font-medium hover:bg-gold-600 transition-colors shadow-gold"
-        >
-          <Plus className="w-4 h-4" />
-          新作品入库
-        </button>
+        {(hasPermission('keeper') || hasPermission('director')) && (
+          <button
+            onClick={() => setShowFormModal(true)}
+            className="flex items-center gap-2 px-5 py-2.5 bg-gold-500 text-white rounded-lg font-medium hover:bg-gold-600 transition-colors shadow-gold"
+          >
+            <Plus className="w-4 h-4" />
+            新作品入库
+          </button>
+        )}
       </div>
 
       <div className="bg-white dark:bg-ink-800/50 rounded-xl p-4 border border-ink-200 dark:border-ink-700/50 mb-6">
@@ -311,6 +317,11 @@ export default function Collections() {
           <p className="text-ink-500 dark:text-ink-400">没有找到符合条件的藏品</p>
         </div>
       )}
+
+      <ArtworkFormModal
+        isOpen={showFormModal}
+        onClose={() => setShowFormModal(false)}
+      />
     </div>
   );
 }

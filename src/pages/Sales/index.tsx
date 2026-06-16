@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Plus,
   Search,
@@ -23,6 +23,8 @@ import {
   getStatusText,
   getStatusColor,
 } from '@/utils';
+import { SaleFormModal, SaleDetailModal } from '@/components/forms/SaleFormModal';
+import type { SaleRecord } from '@/types';
 
 const typeTabs = ['all', 'sale', 'rental'];
 const statusTabs = ['all', 'pending', 'director_approved', 'committee_approved', 'approved', 'rejected'];
@@ -138,10 +140,21 @@ function SaleCard({ sale, onView }: { sale: any; onView: (id: string) => void })
 }
 
 export default function Sales() {
-  const { sales } = useAppStore();
+  const { sales, escalateOverdueSales, currentUser, hasPermission } = useAppStore();
   const [activeTypeTab, setActiveTypeTab] = useState('all');
   const [activeStatusTab, setActiveStatusTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [showFormModal, setShowFormModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [selectedSale, setSelectedSale] = useState<SaleRecord | null>(null);
+
+  useEffect(() => {
+    escalateOverdueSales();
+    const interval = setInterval(() => {
+      escalateOverdueSales();
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [escalateOverdueSales]);
 
   const filteredSales = sales.filter((sale) => {
     const matchType = activeTypeTab === 'all' || sale.type === activeTypeTab;
@@ -163,7 +176,11 @@ export default function Sales() {
   };
 
   const handleView = (id: string) => {
-    console.log('View sale:', id);
+    const sale = sales.find(s => s.id === id);
+    if (sale) {
+      setSelectedSale(sale);
+      setShowDetailModal(true);
+    }
   };
 
   return (
@@ -177,13 +194,15 @@ export default function Sales() {
             三级审批流程管理
           </p>
         </div>
-        <button
-          onClick={() => {}}
-          className="flex items-center gap-2 px-5 py-2.5 bg-gold-500 text-white rounded-lg font-medium hover:bg-gold-600 transition-colors shadow-gold"
-        >
-          <Plus className="w-4 h-4" />
-          新建申请
-        </button>
+        {(currentUser.role === 'director' || currentUser.role === 'curator' || hasPermission('keeper')) && (
+          <button
+            onClick={() => setShowFormModal(true)}
+            className="flex items-center gap-2 px-5 py-2.5 bg-gold-500 text-white rounded-lg font-medium hover:bg-gold-600 transition-colors shadow-gold"
+          >
+            <Plus className="w-4 h-4" />
+            新建申请
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -276,6 +295,17 @@ export default function Sales() {
           <p className="text-ink-500 dark:text-ink-400">没有找到符合条件的申请</p>
         </div>
       )}
+
+      <SaleFormModal
+        isOpen={showFormModal}
+        onClose={() => setShowFormModal(false)}
+      />
+      
+      <SaleDetailModal
+        isOpen={showDetailModal}
+        onClose={() => setShowDetailModal(false)}
+        sale={selectedSale}
+      />
     </div>
   );
 }

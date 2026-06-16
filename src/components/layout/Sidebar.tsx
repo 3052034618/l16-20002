@@ -14,14 +14,14 @@ import { useAppStore } from '@/store/useAppStore';
 import { cn } from '@/utils';
 
 const menuItems = [
-  { id: 'dashboard', label: '首页大屏', icon: LayoutDashboard },
-  { id: 'collections', label: '藏品管理', icon: Image },
-  { id: 'exhibitions', label: '展览策划', icon: Palette },
-  { id: 'sales', label: '销售租赁', icon: ShoppingCart },
-  { id: 'tasks', label: '布展任务', icon: ClipboardList },
-  { id: 'environment', label: '环境监控', icon: Thermometer },
-  { id: 'logistics', label: '运输保险', icon: Truck },
-  { id: 'settings', label: '系统设置', icon: Settings },
+  { id: 'dashboard', label: '首页大屏', icon: LayoutDashboard, roles: ['director', 'curator', 'keeper', 'artist'] },
+  { id: 'collections', label: '藏品管理', icon: Image, roles: ['director', 'keeper', 'artist'] },
+  { id: 'exhibitions', label: '展览策划', icon: Palette, roles: ['director', 'curator'] },
+  { id: 'sales', label: '销售租赁', icon: ShoppingCart, roles: ['director', 'curator', 'keeper'] },
+  { id: 'tasks', label: '布展任务', icon: ClipboardList, roles: ['director', 'curator', 'keeper'] },
+  { id: 'environment', label: '环境监控', icon: Thermometer, roles: ['director', 'keeper'] },
+  { id: 'logistics', label: '运输保险', icon: Truck, roles: ['director', 'keeper'] },
+  { id: 'settings', label: '系统设置', icon: Settings, roles: ['director'] },
 ];
 
 interface SidebarProps {
@@ -30,7 +30,11 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
-  const { sidebarCollapsed, toggleSidebar } = useAppStore();
+  const { sidebarCollapsed, toggleSidebar, currentUser } = useAppStore();
+
+  const filteredMenuItems = menuItems.filter(item => 
+    item.roles.includes(currentUser.role)
+  );
 
   return (
     <aside
@@ -60,7 +64,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
 
       <nav className="flex-1 py-4 overflow-y-auto">
         <ul className="space-y-1 px-3">
-          {menuItems.map((item) => {
+          {filteredMenuItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentPage === item.id;
             return (

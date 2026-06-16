@@ -11,6 +11,8 @@ import {
   Plus,
   Save,
   X,
+  CheckCircle,
+  AlertTriangle,
 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { cn, getRoleText } from '@/utils';
@@ -128,56 +130,79 @@ function UsersSection() {
 }
 
 function ValuationSection() {
-  const { valuationRules } = useAppStore();
+  const { valuationRules, updateValuationRules, currentUser, hasPermission } = useAppStore();
   const [rules, setRules] = useState(valuationRules);
   const [isEditing, setIsEditing] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  const canEdit = currentUser.role === 'director';
 
   const handleSave = () => {
+    updateValuationRules(rules);
     setIsEditing(false);
+    setShowSuccess(true);
+    setTimeout(() => setShowSuccess(false), 3000);
   };
 
   return (
-    <div>
+    <div className="relative">
+      {showSuccess && (
+        <div className="absolute -top-2 left-1/2 -translate-x-1/2 z-50 px-6 py-3 bg-emerald-500 text-white rounded-lg shadow-lg animate-fade-in flex items-center gap-2">
+          <CheckCircle className="w-4 h-4" />
+          估值规则保存成功
+        </div>
+      )}
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-medium text-ink-800 dark:text-ink-100">
           估值规则配置
         </h3>
         <div className="flex items-center gap-3">
+          {!canEdit && (
+            <span className="text-xs text-amber-500 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" />
+              仅馆长可修改估值规则
+            </span>
+          )}
           <label className="flex items-center gap-2 text-sm text-ink-600 dark:text-ink-300">
             <input
               type="checkbox"
               checked={rules.autoValuationEnabled}
               onChange={(e) =>
-                setRules({ ...rules, autoValuationEnabled: e.target.checked })
+                canEdit && setRules({ ...rules, autoValuationEnabled: e.target.checked })
               }
-              className="w-4 h-4 rounded border-ink-300 text-gold-500 focus:ring-gold-500/50"
+              disabled={!canEdit}
+              className="w-4 h-4 rounded border-ink-300 text-gold-500 focus:ring-gold-500/50 disabled:opacity-50"
             />
             启用自动估值
           </label>
-          {isEditing ? (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setIsEditing(false)}
-                className="px-3 py-1.5 text-ink-500 text-sm hover:text-ink-700 dark:hover:text-ink-300 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-              <button
-                onClick={handleSave}
-                className="flex items-center gap-1.5 px-4 py-1.5 bg-gold-500 text-white rounded-lg text-sm font-medium hover:bg-gold-600 transition-colors"
-              >
-                <Save className="w-4 h-4" />
-                保存
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setIsEditing(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-ink-100 dark:bg-ink-700 text-ink-600 dark:text-ink-300 rounded-lg text-sm font-medium hover:bg-ink-200 dark:hover:bg-ink-600 transition-colors"
-            >
-              <Edit className="w-4 h-4" />
-              编辑
-            </button>
+          {canEdit && (
+            <>
+              {isEditing ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsEditing(false)}
+                    className="px-3 py-1.5 text-ink-500 text-sm hover:text-ink-700 dark:hover:text-ink-300 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    className="flex items-center gap-1.5 px-4 py-1.5 bg-gold-500 text-white rounded-lg text-sm font-medium hover:bg-gold-600 transition-colors"
+                  >
+                    <Save className="w-4 h-4" />
+                    保存
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-ink-100 dark:bg-ink-700 text-ink-600 dark:text-ink-300 rounded-lg text-sm font-medium hover:bg-ink-200 dark:hover:bg-ink-600 transition-colors"
+                >
+                  <Edit className="w-4 h-4" />
+                  编辑
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -204,7 +229,7 @@ function ValuationSection() {
                 onChange={(e) =>
                   setRules({ ...rules, artistReputationWeight: parseFloat(e.target.value) })
                 }
-                disabled={!isEditing}
+                disabled={!isEditing || !canEdit}
                 className="w-full h-2 bg-ink-200 dark:bg-ink-700 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-gold-500 [&::-webkit-slider-thumb]:rounded-full"
               />
             </div>
@@ -226,7 +251,7 @@ function ValuationSection() {
                 onChange={(e) =>
                   setRules({ ...rules, salesHistoryWeight: parseFloat(e.target.value) })
                 }
-                disabled={!isEditing}
+                disabled={!isEditing || !canEdit}
                 className="w-full h-2 bg-ink-200 dark:bg-ink-700 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-gold-500 [&::-webkit-slider-thumb]:rounded-full"
               />
             </div>
@@ -248,7 +273,7 @@ function ValuationSection() {
                 onChange={(e) =>
                   setRules({ ...rules, marketTrendWeight: parseFloat(e.target.value) })
                 }
-                disabled={!isEditing}
+                disabled={!isEditing || !canEdit}
                 className="w-full h-2 bg-ink-200 dark:bg-ink-700 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-gold-500 [&::-webkit-slider-thumb]:rounded-full"
               />
             </div>
@@ -274,7 +299,7 @@ function ValuationSection() {
                         },
                       })
                     }
-                    disabled={!isEditing}
+                    disabled={!isEditing || !canEdit}
                     step="0.1"
                     className="w-20 px-2 py-1 text-sm rounded bg-ink-50 dark:bg-ink-700/50 border border-ink-200 dark:border-ink-600 text-ink-700 dark:text-ink-200 focus:outline-none focus:ring-2 focus:ring-gold-500/50 text-right"
                   />

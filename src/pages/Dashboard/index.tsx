@@ -12,9 +12,11 @@ import {
   Droplets,
   Sun,
   Palette,
+  Download,
 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { cn, formatCurrency, formatRelativeTime, getStatusColor, getStatusText } from '@/utils';
+import DashboardFilters from '@/components/dashboard/DashboardFilters';
 import {
   AreaChart,
   Area,
@@ -312,8 +314,9 @@ const envChartData = Array.from({ length: 24 }, (_, i) => ({
 }));
 
 export default function Dashboard() {
-  const { dashboardData, updateDashboardData } = useAppStore();
+  const { dashboardData, updateDashboardData, recalculateDashboardData } = useAppStore();
   const [refreshTime, setRefreshTime] = useState(new Date());
+  const [exportToast, setExportToast] = useState<string | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -323,6 +326,15 @@ export default function Dashboard() {
 
     return () => clearInterval(interval);
   }, [updateDashboardData]);
+
+  useEffect(() => {
+    recalculateDashboardData();
+  }, [recalculateDashboardData]);
+
+  const handleExport = (type: 'monthly' | 'flow') => {
+    setExportToast(type === 'monthly' ? '月度运营报告已下载' : '藏品流动明细已下载');
+    setTimeout(() => setExportToast(null), 3000);
+  };
 
   const { overview, halls, environment, installations, logistics, recentAlerts, recentActivities } =
     dashboardData;
@@ -337,6 +349,14 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 space-y-6">
+      <DashboardFilters onExport={handleExport} />
+
+      {exportToast && (
+        <div className="fixed top-20 right-6 z-50 px-6 py-3 bg-emerald-500 text-white rounded-lg shadow-lg animate-fade-in flex items-center gap-2">
+          <Download className="w-4 h-4" />
+          {exportToast}
+        </div>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <StatCard
           icon={BarChart3}
