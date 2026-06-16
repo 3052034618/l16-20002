@@ -14,6 +14,8 @@ import type {
   ValuationRules,
   FilterOptions,
   WorkOrder,
+  InstallationProgress,
+  TransportSummary,
 } from '@/types';
 import {
   mockUsers,
@@ -28,6 +30,7 @@ import {
   mockDashboardData,
   mockValuationRules,
   mockArtists,
+  mockWorkOrders,
 } from '@/data/mockData';
 import { generateId, generateDigitalFingerprint, calculateValuation } from '@/utils';
 
@@ -87,6 +90,7 @@ interface AppState {
   hasPermission: (requiredRole: UserRole) => boolean;
   getFilteredArtworks: () => Artwork[];
   getFilteredDashboardData: () => DashboardData;
+  getPendingCountForCurrentUser: () => number;
 }
 
 const roleHierarchy: Record<UserRole, number> = {
@@ -96,7 +100,7 @@ const roleHierarchy: Record<UserRole, number> = {
   director: 4,
 };
 
-const initialWorkOrders: WorkOrder[] = [];
+const initialWorkOrders: WorkOrder[] = [...mockWorkOrders];
 
 export const useAppStore = create<AppState>((set, get) => ({
   currentUser: mockUsers[0],
@@ -138,7 +142,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     setTimeout(() => get().recalculateDashboardData(), 0);
   },
   
-  resetFilters: () => set({ filters: {} }),
+  resetFilters: () => {
+    set({ filters: {} });
+    setTimeout(() => get().recalculateDashboardData(), 0);
+  },
 
   updateArtwork: (id, updates) => {
     set({
@@ -309,34 +316,44 @@ export const useAppStore = create<AppState>((set, get) => ({
   escalateOverdueSales: () => {
     const state = get();
     const now = new Date();
+    const levelOrder = ['director', 'committee', 'financial'];
     
     const updatedSales = state.sales.map((sale) => {
-      if (sale.status === 'approved' || sale.status === 'rejected' || sale.escalated) {
+      if (sale.status === 'approved' || sale.status === 'rejected') {
         return sale;
       }
       
-      const createdAt = new Date(sale.createdAt);
-      const hoursPassed = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+      const checkTime = sale.lastUpdate ? new Date(sale.lastUpdate) : new Date(sale.createdAt);
+      const hoursPassed = (now.getTime() - checkTime.getTime()) / (1000 * 60 * 60);
       
       if (hoursPassed > 48) {
-        const levelOrder = ['director', 'committee', 'financial'];
         const currentIndex = levelOrder.indexOf(sale.currentLevel);
-        const nextLevel = currentIndex < 2 ? levelOrder[currentIndex + 1] : sale.currentLevel;
         
-        const newApprovals = sale.approvals.map((a) => {
-          if (a.level === sale.currentLevel && a.status === 'pending') {
-            return { ...a, status: 'escalated' as const };
-          }
-          return a;
-        });
-        
-        return {
-          ...sale,
-          escalated: true,
-          currentLevel: nextLevel as SaleRecord['currentLevel'],
-          approvals: newApprovals,
-          lastUpdate: new Date().toISOString(),
-        };
+        if (currentIndex < 2) {
+          const nextLevel = levelOrder[currentIndex + 1];
+          
+          const newApprovals = sale.approvals.map((a) => {
+            if (a.level === sale.currentLevel && (a.status === 'pending' || a.status === 'escalated')) {
+              return { ...a, status: 'escalated' as const, timestamp: new Date().toISOString() };
+            }
+            return a;
+          });
+          
+          const statusMap: Record<string, string> = {
+            director: 'pending',
+            committee: 'director_approved',
+            financial: 'committee_approved',
+          };
+          
+          return {
+            ...sale,
+            escalated: true,
+            currentLevel: nextLevel as SaleRecord['currentLevel'],
+            status: statusMap[nextLevel] as SaleRecord['status'],
+            approvals: newApprovals,
+            lastUpdate: new Date().toISOString(),
+          };
+        }
       }
       
       return sale;
@@ -412,8 +429,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       type: alert.type,
       status: 'open',
       assignee: state.currentUser.name,
+      assigneeId: state.currentUser.id,
       createdAt: new Date().toISOString(),
       description,
+      location: alert.hallName,
+      progress: 0,
     };
     
     set({
@@ -483,13 +503,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   recalculateDashboardData: () => {
     const state = get();
-    const { filters, artworks, sales, alerts, exhibitions, transports, sensors } = state;
+    const { filters, artworks, sales, alerts, exhibitions, transports, sensors, tasks } = state;
     
     let filteredArtworks = [...artworks];
     let filteredSales = [...sales];
     let filteredAlerts = [...alerts];
     let filteredExhibitions = [...exhibitions];
     let filteredTransports = [...transports];
+    let filteredTasks = [...tasks];
     
     if (filters.artist) {
       filteredArtworks = filteredArtworks.filter(a => a.artistId === filters.artist);
@@ -497,6 +518,18 @@ export const useAppStore = create<AppState>((set, get) => ({
         const artwork = artworks.find(a => a.id === s.artworkId);
         return artwork?.artistId === filters.artist;
       });
+      filteredTransports = filteredTransports.filter(t => {
+        const artwork = artworks.find(a => a.id === t.artworkId);
+        return artwork?.artistId === filters.artist;
+      });
+      const artistArtworkIds = filteredArtworks.map(a => a.id);
+      filteredTasks = filteredTasks.filter(t => {
+        const exhibition = exhibitions.find(e => e.id === t.exhibitionId);
+        return exhibition?.artworks.some(a => artistArtworkIds.includes(a.artworkId));
+      });
+      filteredExhibitions = filteredExhibitions.filter(e => 
+        e.artworks.some(a => artistArtworkIds.includes(a.artworkId))
+      );
     }
     
     if (filters.exhibition) {
@@ -504,8 +537,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (exhibition) {
         const artworkIds = exhibition.artworks.map(a => a.artworkId);
         filteredArtworks = filteredArtworks.filter(a => artworkIds.includes(a.id));
+        filteredTransports = filteredTransports.filter(t => artworkIds.includes(t.artworkId));
       }
       filteredExhibitions = filteredExhibitions.filter(e => e.id === filters.exhibition);
+      filteredTasks = filteredTasks.filter(t => t.exhibitionId === filters.exhibition);
     }
     
     if (filters.dateRange) {
@@ -519,6 +554,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       
       filteredAlerts = filteredAlerts.filter(a => {
         const date = new Date(a.startTime);
+        return date >= start && date <= end;
+      });
+      
+      filteredTransports = filteredTransports.filter(t => {
+        const date = new Date(t.departureDate);
+        return date >= start && date <= end;
+      });
+      
+      filteredTasks = filteredTasks.filter(t => {
+        const date = new Date(t.dueDate);
         return date >= start && date <= end;
       });
     }
@@ -545,6 +590,44 @@ export const useAppStore = create<AppState>((set, get) => ({
     
     const activeAlerts = filteredAlerts.filter(a => !a.resolvedAt);
     
+    const exhibitionTaskMap = new Map<string, InstallTask[]>();
+    filteredTasks.forEach(task => {
+      if (!exhibitionTaskMap.has(task.exhibitionId)) {
+        exhibitionTaskMap.set(task.exhibitionId, []);
+      }
+      exhibitionTaskMap.get(task.exhibitionId)!.push(task);
+    });
+    
+    const installations: InstallationProgress[] = [];
+    filteredExhibitions.forEach(exhibition => {
+      const exhibitionTasks = exhibitionTaskMap.get(exhibition.id) || [];
+      if (exhibitionTasks.length > 0 || filters.exhibition === exhibition.id) {
+        const totalTasks = exhibitionTasks.length || 1;
+        const completedTasks = exhibitionTasks.filter(t => t.status === 'completed').length;
+        const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+        installations.push({
+          exhibitionId: exhibition.id,
+          exhibitionName: exhibition.name,
+          progress,
+          totalTasks,
+          completedTasks,
+          dueDate: exhibition.endDate,
+          hallName: exhibition.hallName,
+        });
+      }
+    });
+    
+    const hasFilters = filters.artist || filters.exhibition || filters.dateRange;
+    const logistics: TransportSummary[] = hasFilters 
+      ? filteredTransports.map(t => ({
+          transportId: t.id,
+          artworkTitle: t.artworkTitle,
+          status: t.status,
+          currentLocation: t.currentLocation,
+          estimatedArrival: t.estimatedArrival,
+        }))
+      : state.dashboardData.logistics;
+    
     const oldData = state.dashboardData;
     const newData: DashboardData = {
       ...oldData,
@@ -566,6 +649,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         warningHalls: warningSensors,
         alertsToday: activeAlerts.length,
       },
+      installations,
+      logistics,
       recentAlerts: activeAlerts.slice(0, 5),
     };
     
@@ -588,7 +673,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { currentUser, artworks } = state;
     
     if (currentUser.role === 'artist') {
-      return artworks.filter(a => a.artistId === currentUser.id);
+      if (currentUser.artistId) {
+        return artworks.filter(a => a.artistId === currentUser.artistId);
+      }
+      return artworks.filter(a => a.artistName === currentUser.name);
     }
     
     return artworks;
@@ -596,5 +684,25 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   getFilteredDashboardData: () => {
     return get().dashboardData;
+  },
+
+  getPendingCountForCurrentUser: () => {
+    const state = get();
+    const { currentUser, sales } = state;
+    
+    const roleLevelMap: Record<string, string> = {
+      director: 'director',
+      curator: 'committee',
+      keeper: 'financial',
+    };
+    
+    const userLevel = roleLevelMap[currentUser.role];
+    if (!userLevel) return 0;
+    
+    return sales.filter(s => 
+      s.status !== 'approved' && 
+      s.status !== 'rejected' && 
+      s.currentLevel === userLevel
+    ).length;
   },
 }));

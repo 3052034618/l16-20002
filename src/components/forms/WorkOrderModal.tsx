@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Wrench, Settings, CheckCircle2, Clock, User, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Wrench, Settings, CheckCircle2, Clock, User, AlertTriangle, ArrowRight, MapPin } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { cn, formatDate, formatRelativeTime } from '@/utils';
 import Modal from '@/components/common/Modal';
@@ -231,7 +231,7 @@ export function WorkOrderListModal({ isOpen, onClose }: WorkOrderListModalProps)
             <p className="text-ink-500 dark:text-ink-400">暂无工单</p>
           </div>
         ) : (
-          <div className="space-y-3 max-h-[50vh] overflow-y-auto">
+          <div className="space-y-3 max-h-[60vh] overflow-y-auto">
             {filteredOrders.map(order => {
               const alert = getAlert(order.alertId);
               return (
@@ -240,10 +240,10 @@ export function WorkOrderListModal({ isOpen, onClose }: WorkOrderListModalProps)
                   className="p-4 rounded-xl bg-white dark:bg-ink-800/50 border border-ink-200 dark:border-ink-700/50"
                 >
                   <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
                         <h4 className="font-medium text-ink-800 dark:text-ink-100">
-                          {alert?.hallName || '未知位置'} - {order.type}
+                          {alert?.hallName || order.location} - {order.type}
                         </h4>
                         <span className={cn(
                           'text-xs px-2 py-0.5 rounded-full font-medium',
@@ -251,33 +251,68 @@ export function WorkOrderListModal({ isOpen, onClose }: WorkOrderListModalProps)
                         )}>
                           {statusText[order.status]}
                         </span>
+                        {alert?.level === 'escalated' && (
+                          <span className="flex items-center gap-1 text-xs text-red-500 font-medium">
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            已升级
+                          </span>
+                        )}
                       </div>
-                      <p className="text-sm text-ink-500 dark:text-ink-400">
+                      <p className="text-sm text-ink-500 dark:text-ink-400 mb-3">
                         {order.description}
                       </p>
+                      
+                      <div className="grid grid-cols-2 gap-3 mb-3">
+                        <div className="flex items-center gap-2 text-xs text-ink-400">
+                          <MapPin className="w-3.5 h-3.5 text-gold-500" />
+                          <span className="text-ink-500 dark:text-ink-400">位置:</span>
+                          <span className="text-ink-700 dark:text-ink-300 font-medium">{order.location}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-ink-400">
+                          <User className="w-3.5 h-3.5 text-blue-500" />
+                          <span className="text-ink-500 dark:text-ink-400">处理人:</span>
+                          <span className="text-ink-700 dark:text-ink-300 font-medium">{order.assignee}</span>
+                        </div>
+                      </div>
+
+                      {order.status !== 'resolved' && (
+                        <div className="mb-3">
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <span className="text-ink-500 dark:text-ink-400">处理进度</span>
+                            <span className="text-ink-700 dark:text-ink-300 font-medium">{order.progress}%</span>
+                          </div>
+                          <div className="h-2 bg-ink-100 dark:bg-ink-700 rounded-full overflow-hidden">
+                            <div 
+                              className={cn(
+                                'h-full rounded-full transition-all duration-300',
+                                order.progress === 100 ? 'bg-emerald-500' : 
+                                order.progress > 50 ? 'bg-blue-500' : 'bg-gold-500'
+                              )}
+                              style={{ width: `${order.progress}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {order.notes && (
+                        <div className="p-3 rounded-lg bg-ink-50 dark:bg-ink-700/50 text-xs text-ink-500 dark:text-ink-400">
+                          <span className="font-medium text-ink-700 dark:text-ink-300">处理备注: </span>
+                          {order.notes}
+                        </div>
+                      )}
                     </div>
-                    {alert?.level === 'escalated' && (
-                      <span className="flex items-center gap-1 text-xs text-red-500 font-medium">
-                        <AlertTriangle className="w-3.5 h-3.5" />
-                        已升级
-                      </span>
-                    )}
                   </div>
 
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between pt-3 border-t border-ink-200 dark:border-ink-700">
                     <div className="flex items-center gap-4 text-xs text-ink-400">
                       <span className="flex items-center gap-1">
-                        <User className="w-3.5 h-3.5" />
-                        {order.assignee}
-                      </span>
-                      <span className="flex items-center gap-1">
                         <Clock className="w-3.5 h-3.5" />
-                        {formatDate(order.createdAt)}
+                        创建于 {formatDate(order.createdAt)}
                       </span>
                       {order.resolvedAt && (
                         <span className="flex items-center gap-1">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                          {formatRelativeTime(order.resolvedAt)}
+                          完成于 {formatRelativeTime(order.resolvedAt)}
                         </span>
                       )}
                     </div>
@@ -286,7 +321,7 @@ export function WorkOrderListModal({ isOpen, onClose }: WorkOrderListModalProps)
                       <div className="flex items-center gap-2">
                         {order.status === 'open' && (
                           <button
-                            onClick={() => updateWorkOrder(order.id, { status: 'in_progress' })}
+                            onClick={() => updateWorkOrder(order.id, { status: 'in_progress', progress: 20 })}
                             className="flex items-center gap-1 px-3 py-1 text-xs bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-500/30 transition-colors"
                           >
                             <ArrowRight className="w-3.5 h-3.5" />
@@ -294,13 +329,21 @@ export function WorkOrderListModal({ isOpen, onClose }: WorkOrderListModalProps)
                           </button>
                         )}
                         {order.status === 'in_progress' && (
-                          <button
-                            onClick={() => updateWorkOrder(order.id, { status: 'resolved' })}
-                            className="flex items-center gap-1 px-3 py-1 text-xs bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-lg hover:bg-emerald-200 dark:hover:bg-emerald-500/30 transition-colors"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            完成
-                          </button>
+                          <>
+                            <button
+                              onClick={() => updateWorkOrder(order.id, { progress: Math.min(order.progress + 20, 80) })}
+                              className="flex items-center gap-1 px-3 py-1 text-xs bg-gold-100 dark:bg-gold-500/20 text-gold-600 dark:text-gold-400 rounded-lg hover:bg-gold-200 dark:hover:bg-gold-500/30 transition-colors"
+                            >
+                              更新进度
+                            </button>
+                            <button
+                              onClick={() => updateWorkOrder(order.id, { status: 'resolved', progress: 100, resolvedAt: new Date().toISOString() })}
+                              className="flex items-center gap-1 px-3 py-1 text-xs bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-lg hover:bg-emerald-200 dark:hover:bg-emerald-500/30 transition-colors"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              完成
+                            </button>
+                          </>
                         )}
                       </div>
                     )}

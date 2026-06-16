@@ -6,6 +6,7 @@ export interface User {
   email: string;
   role: UserRole;
   avatar: string;
+  artistId?: string;
 }
 
 export type ArtworkStatus = 'in_storage' | 'on_exhibition' | 'on_loan' | 'in_transport' | 'sold';
@@ -194,9 +195,13 @@ export interface WorkOrder {
   type: string;
   status: 'open' | 'in_progress' | 'resolved';
   assignee: string;
+  assigneeId?: string;
   createdAt: string;
   resolvedAt?: string;
   description: string;
+  location: string;
+  progress: number;
+  notes?: string;
 }
 
 export type TransportStatus = 'pending' | 'in_transit' | 'delayed' | 'delivered';

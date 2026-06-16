@@ -42,6 +42,7 @@ export const mockUsers: User[] = [
     email: 'chen.sq@artmuseum.com',
     role: 'artist',
     avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&crop=face',
+    artistId: 'a1',
   },
   {
     id: 'u5',
@@ -49,6 +50,7 @@ export const mockUsers: User[] = [
     email: 'zhao.wb@artmuseum.com',
     role: 'artist',
     avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=face',
+    artistId: 'a2',
   },
 ];
 
@@ -841,27 +843,6 @@ export const mockAlerts: Alert[] = [
   },
 ];
 
-export const mockWorkOrders: WorkOrder[] = [
-  {
-    id: 'wo1',
-    alertId: 'alert1',
-    type: '空调维修',
-    status: 'in_progress',
-    assignee: '李师傅',
-    createdAt: '2024-03-20 13:20',
-    description: '二号展厅空调系统检修',
-  },
-  {
-    id: 'wo2',
-    alertId: 'alert2',
-    type: '除湿机维修',
-    status: 'open',
-    assignee: '未分配',
-    createdAt: '2024-03-20 12:05',
-    description: '库房B区除湿设备故障维修，已升级告警',
-  },
-];
-
 export const mockTransports: Transport[] = [
   {
     id: 'tr1',
@@ -1142,6 +1123,63 @@ export const mockDashboardData: DashboardData = {
     },
   ],
 };
+
+export const mockWorkOrders: WorkOrder[] = [
+  {
+    id: 'wo1',
+    alertId: 'alert1',
+    type: '空调维修',
+    status: 'in_progress',
+    assignee: '张师傅',
+    assigneeId: 'u3',
+    createdAt: '2024-03-20 13:20',
+    description: '二号展厅空调系统制冷效果不佳，温度持续偏高',
+    location: '二号展厅空调机房',
+    progress: 60,
+    notes: '已检查压缩机，需要更换滤芯',
+  },
+  {
+    id: 'wo2',
+    alertId: 'alert2',
+    type: '除湿设备维修',
+    status: 'in_progress',
+    assignee: '李师傅',
+    assigneeId: 'u3',
+    createdAt: '2024-03-20 12:10',
+    description: '库房B区除湿机故障，湿度严重超标',
+    location: '库房B区设备间',
+    progress: 30,
+    notes: '已联系设备厂商，等待配件',
+  },
+  {
+    id: 'wo3',
+    alertId: 'alert3',
+    type: '空调系统调试',
+    status: 'open',
+    assignee: '王师傅',
+    assigneeId: 'u3',
+    createdAt: '2024-03-19 09:30',
+    resolvedAt: '2024-03-19 14:20',
+    description: '库房B区湿度波动较大，需要调试除湿系统',
+    location: '库房B区',
+    progress: 100,
+    notes: '已完成调试，湿度已恢复正常',
+  },
+  {
+    id: 'wo4',
+    alertId: 'alert4',
+    type: '紫外线防护检查',
+    status: 'resolved',
+    assignee: '张师傅',
+    assigneeId: 'u3',
+    createdAt: '2024-03-18 15:45',
+    resolvedAt: '2024-03-18 16:30',
+    description: '一号展厅紫外线指数偏高，检查遮阳系统',
+    location: '一号展厅天窗区域',
+    progress: 100,
+    notes: '已调整遮阳帘角度，紫外线已恢复正常',
+  },
+];
 
 export const mockValuationRules: ValuationRules = {
   artistReputationWeight: 0.4,

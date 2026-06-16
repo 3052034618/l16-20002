@@ -329,9 +329,12 @@ export function SaleDetailModal({ isOpen, onClose, sale }: SaleDetailModalProps)
   };
 
   const createdAt = new Date(sale.createdAt);
+  const checkTime = sale.lastUpdate ? new Date(sale.lastUpdate) : createdAt;
   const now = new Date();
-  const hoursPassed = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+  const hoursPassed = (now.getTime() - checkTime.getTime()) / (1000 * 60 * 60);
   const isOverdue = hoursPassed > 48 && sale.status !== 'approved' && sale.status !== 'rejected';
+
+  const escalatedCount = sale.approvals.filter(a => a.status === 'escalated').length;
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="申请详情" size="xl">
@@ -384,23 +387,53 @@ export function SaleDetailModal({ isOpen, onClose, sale }: SaleDetailModalProps)
             <p className="font-medium text-ink-700 dark:text-ink-300">{formatDate(sale.createdAt)}</p>
           </div>
           <div>
-            <p className="text-xs text-ink-400 mb-1">当前状态</p>
+            <p className="text-xs text-ink-400 mb-1">当前流转</p>
             <p className={cn(
               'font-medium',
               sale.status === 'approved' ? 'text-emerald-500' :
-              sale.status === 'rejected' ? 'text-red-500' : 'text-amber-500'
+              sale.status === 'rejected' ? 'text-red-500' : 'text-gold-500'
             )}>
-              {getStatusText(sale.status)}
+              {levelNames[sale.currentLevel]}
             </p>
           </div>
+          {sale.lastUpdate && sale.status !== 'approved' && sale.status !== 'rejected' && (
+            <>
+              <div>
+                <p className="text-xs text-ink-400 mb-1">当前状态</p>
+                <p className="font-medium text-amber-500">
+                  {getStatusText(sale.status)}
+                </p>
+              </div>
+              {escalatedCount > 0 && (
+                <div>
+                  <p className="text-xs text-ink-400 mb-1">越级次数</p>
+                  <p className="font-medium text-orange-500">{escalatedCount} 次</p>
+                </div>
+              )}
+            </>
+          )}
+          {(sale.status === 'approved' || sale.status === 'rejected') && (
+            <div>
+              <p className="text-xs text-ink-400 mb-1">当前状态</p>
+              <p className={cn(
+                'font-medium',
+                sale.status === 'approved' ? 'text-emerald-500' : 'text-red-500'
+              )}>
+                {getStatusText(sale.status)}
+              </p>
+            </div>
+          )}
         </div>
 
-        {isOverdue && (
+        {(isOverdue || sale.escalated) && (
           <div className="p-4 rounded-xl bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/30">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-orange-500" />
               <span className="font-medium text-orange-700 dark:text-orange-400">
-                申请已超过48小时未处理，已自动越级
+                {sale.escalated 
+                  ? `申请已自动越级 ${escalatedCount} 次，当前流转至 ${levelNames[sale.currentLevel]}`
+                  : '申请已超过48小时未处理，即将自动越级'
+                }
               </span>
             </div>
           </div>

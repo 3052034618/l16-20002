@@ -140,7 +140,7 @@ function SaleCard({ sale, onView }: { sale: any; onView: (id: string) => void })
 }
 
 export default function Sales() {
-  const { sales, escalateOverdueSales, currentUser, hasPermission } = useAppStore();
+  const { sales, escalateOverdueSales, currentUser, hasPermission, getPendingCountForCurrentUser } = useAppStore();
   const [activeTypeTab, setActiveTypeTab] = useState('all');
   const [activeStatusTab, setActiveStatusTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -166,9 +166,11 @@ export default function Sales() {
     return matchType && matchStatus && matchSearch;
   });
 
+  const pendingCount = getPendingCountForCurrentUser();
+  
   const stats = {
     total: sales.length,
-    pending: sales.filter((s) => s.status !== 'approved' && s.status !== 'rejected').length,
+    pending: pendingCount,
     approved: sales.filter((s) => s.status === 'approved').length,
     totalAmount: sales
       .filter((s) => s.status === 'approved')
