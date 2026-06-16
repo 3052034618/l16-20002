@@ -189,6 +189,16 @@ export interface Alert {
   duration?: number;
 }
 
+export interface WorkOrderLog {
+  id: string;
+  type: 'created' | 'started' | 'progress' | 'resolved' | 'note';
+  description: string;
+  operator: string;
+  operatorId?: string;
+  timestamp: string;
+  progress?: number;
+}
+
 export interface WorkOrder {
   id: string;
   alertId: string;
@@ -202,6 +212,7 @@ export interface WorkOrder {
   location: string;
   progress: number;
   notes?: string;
+  logs: WorkOrderLog[];
 }
 
 export type TransportStatus = 'pending' | 'in_transit' | 'delayed' | 'delivered';
@@ -335,4 +346,13 @@ export interface FilterOptions {
   artist?: string;
   dateRange?: { start: string; end: string };
   status?: string;
+}
+
+export interface DashboardView {
+  id: string;
+  name: string;
+  filters: FilterOptions;
+  visibleWidgets: string[];
+  createdAt: string;
+  createdBy: string;
 }

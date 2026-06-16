@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Wrench, Settings, CheckCircle2, Clock, User, AlertTriangle, ArrowRight, MapPin } from 'lucide-react';
+import { Wrench, Settings, CheckCircle2, Clock, User, AlertTriangle, ArrowRight, MapPin, ChevronDown, ChevronUp, FileText, Play, CheckCircle, AlertCircle } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { cn, formatDate, formatRelativeTime } from '@/utils';
 import Modal from '@/components/common/Modal';
@@ -180,9 +180,19 @@ export function WorkOrderModal({ isOpen, onClose, alert }: WorkOrderModalProps) 
   );
 }
 
-export function WorkOrderListModal({ isOpen, onClose }: WorkOrderListModalProps) {
+export function WorkOrderListModal({ isOpen, onClose, defaultAlertId }: WorkOrderListModalProps & { defaultAlertId?: string }) {
   const { workOrders, alerts, updateWorkOrder, currentUser } = useAppStore();
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (defaultAlertId) {
+      const order = workOrders.find(w => w.alertId === defaultAlertId);
+      if (order) {
+        setExpandedOrderId(order.id);
+      }
+    }
+  }, [defaultAlertId, workOrders, isOpen]);
 
   const filteredOrders = selectedStatus === 'all' 
     ? workOrders 
@@ -317,37 +327,108 @@ export function WorkOrderListModal({ isOpen, onClose }: WorkOrderListModalProps)
                       )}
                     </div>
 
-                    {order.status !== 'resolved' && (
-                      <div className="flex items-center gap-2">
-                        {order.status === 'open' && (
-                          <button
-                            onClick={() => updateWorkOrder(order.id, { status: 'in_progress', progress: 20 })}
-                            className="flex items-center gap-1 px-3 py-1 text-xs bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-500/30 transition-colors"
-                          >
-                            <ArrowRight className="w-3.5 h-3.5" />
-                            开始处理
-                          </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                        className="flex items-center gap-1 px-3 py-1 text-xs text-ink-500 hover:text-ink-700 dark:hover:text-ink-300 border border-ink-200 dark:border-ink-600 rounded-lg hover:bg-ink-50 dark:hover:bg-ink-700/50 transition-colors"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        处理记录
+                        {expandedOrderId === order.id ? (
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        ) : (
+                          <ChevronDown className="w-3.5 h-3.5" />
                         )}
-                        {order.status === 'in_progress' && (
-                          <>
+                      </button>
+
+                      {order.status !== 'resolved' && (
+                        <div className="flex items-center gap-2">
+                          {order.status === 'open' && (
                             <button
-                              onClick={() => updateWorkOrder(order.id, { progress: Math.min(order.progress + 20, 80) })}
-                              className="flex items-center gap-1 px-3 py-1 text-xs bg-gold-100 dark:bg-gold-500/20 text-gold-600 dark:text-gold-400 rounded-lg hover:bg-gold-200 dark:hover:bg-gold-500/30 transition-colors"
+                              onClick={() => updateWorkOrder(order.id, { status: 'in_progress', progress: 20 })}
+                              className="flex items-center gap-1 px-3 py-1 text-xs bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-500/30 transition-colors"
                             >
-                              更新进度
+                              <ArrowRight className="w-3.5 h-3.5" />
+                              开始处理
                             </button>
-                            <button
-                              onClick={() => updateWorkOrder(order.id, { status: 'resolved', progress: 100, resolvedAt: new Date().toISOString() })}
-                              className="flex items-center gap-1 px-3 py-1 text-xs bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-lg hover:bg-emerald-200 dark:hover:bg-emerald-500/30 transition-colors"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              完成
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    )}
+                          )}
+                          {order.status === 'in_progress' && (
+                            <>
+                              <button
+                                onClick={() => updateWorkOrder(order.id, { progress: Math.min(order.progress + 20, 80) })}
+                                className="flex items-center gap-1 px-3 py-1 text-xs bg-gold-100 dark:bg-gold-500/20 text-gold-600 dark:text-gold-400 rounded-lg hover:bg-gold-200 dark:hover:bg-gold-500/30 transition-colors"
+                              >
+                                更新进度
+                              </button>
+                              <button
+                                onClick={() => updateWorkOrder(order.id, { status: 'resolved', progress: 100, resolvedAt: new Date().toISOString() })}
+                                className="flex items-center gap-1 px-3 py-1 text-xs bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-lg hover:bg-emerald-200 dark:hover:bg-emerald-500/30 transition-colors"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                完成
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
+
+                  {expandedOrderId === order.id && order.logs && order.logs.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-ink-200 dark:border-ink-700">
+                      <h5 className="text-sm font-medium text-ink-700 dark:text-ink-300 mb-3 flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-gold-500" />
+                        处理记录时间线
+                      </h5>
+                      <div className="relative pl-6 space-y-4">
+                        <div className="absolute left-[7px] top-1 bottom-1 w-px bg-ink-200 dark:bg-ink-700" />
+                        {order.logs.slice().reverse().map((log, index) => {
+                          const logTypeColors: Record<string, { bg: string; icon: any; text: string }> = {
+                            created: { bg: 'bg-blue-500', icon: AlertCircle, text: '创建' },
+                            started: { bg: 'bg-amber-500', icon: Play, text: '开始' },
+                            progress: { bg: 'bg-gold-500', icon: Clock, text: '进度' },
+                            resolved: { bg: 'bg-emerald-500', icon: CheckCircle, text: '完成' },
+                            note: { bg: 'bg-purple-500', icon: FileText, text: '备注' },
+                          };
+                          const logInfo = logTypeColors[log.type] || logTypeColors.note;
+                          const LogIcon = logInfo.icon;
+
+                          return (
+                            <div key={log.id} className="relative">
+                              <div className={cn(
+                                'absolute -left-6 top-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center',
+                                logInfo.bg
+                              )}>
+                                <LogIcon className="w-2 h-2 text-white" />
+                              </div>
+                              <div className="pb-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-xs font-medium text-ink-700 dark:text-ink-300">
+                                    {log.description}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-3 text-xs text-ink-400">
+                                  <span className="flex items-center gap-1">
+                                    <User className="w-3 h-3" />
+                                    {log.operator}
+                                  </span>
+                                  <span className="flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    {formatRelativeTime(log.timestamp)}
+                                  </span>
+                                  {log.progress !== undefined && (
+                                    <span className="px-1.5 py-0.5 rounded bg-ink-100 dark:bg-ink-700 text-ink-600 dark:text-ink-400">
+                                      {log.progress}%
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}

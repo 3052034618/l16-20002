@@ -16,6 +16,7 @@ import type {
   WorkOrder,
   InstallationProgress,
   TransportSummary,
+  DashboardView,
 } from '@/types';
 import {
   mockUsers,
@@ -91,6 +92,12 @@ interface AppState {
   getFilteredArtworks: () => Artwork[];
   getFilteredDashboardData: () => DashboardData;
   getPendingCountForCurrentUser: () => number;
+  
+  dashboardViews: DashboardView[];
+  currentViewId: string | null;
+  saveDashboardView: (name: string, visibleWidgets: string[]) => void;
+  loadDashboardView: (viewId: string) => void;
+  deleteDashboardView: (viewId: string) => void;
 }
 
 const roleHierarchy: Record<UserRole, number> = {
@@ -118,6 +125,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   valuationRules: mockValuationRules,
   artists: mockArtists,
   filters: {},
+  dashboardViews: [],
+  currentViewId: null,
   darkMode: false,
   sidebarCollapsed: false,
   currentPage: 'dashboard',
@@ -323,40 +332,45 @@ export const useAppStore = create<AppState>((set, get) => ({
         return sale;
       }
       
-      const checkTime = sale.lastUpdate ? new Date(sale.lastUpdate) : new Date(sale.createdAt);
-      const hoursPassed = (now.getTime() - checkTime.getTime()) / (1000 * 60 * 60);
+      const startTime = sale.lastUpdate ? new Date(sale.lastUpdate) : new Date(sale.createdAt);
+      const hoursPassed = (now.getTime() - startTime.getTime()) / (1000 * 60 * 60);
       
-      if (hoursPassed > 48) {
-        const currentIndex = levelOrder.indexOf(sale.currentLevel);
-        
-        if (currentIndex < 2) {
-          const nextLevel = levelOrder[currentIndex + 1];
-          
-          const newApprovals = sale.approvals.map((a) => {
-            if (a.level === sale.currentLevel && (a.status === 'pending' || a.status === 'escalated')) {
-              return { ...a, status: 'escalated' as const, timestamp: new Date().toISOString() };
-            }
-            return a;
-          });
-          
-          const statusMap: Record<string, string> = {
-            director: 'pending',
-            committee: 'director_approved',
-            financial: 'committee_approved',
-          };
-          
-          return {
-            ...sale,
-            escalated: true,
-            currentLevel: nextLevel as SaleRecord['currentLevel'],
-            status: statusMap[nextLevel] as SaleRecord['status'],
-            approvals: newApprovals,
-            lastUpdate: new Date().toISOString(),
-          };
-        }
+      if (hoursPassed <= 48) {
+        return sale;
       }
       
-      return sale;
+      const currentIndex = levelOrder.indexOf(sale.currentLevel);
+      const levelsToEscalate = Math.floor(hoursPassed / 48);
+      const targetIndex = Math.min(currentIndex + levelsToEscalate, levelOrder.length - 1);
+      
+      if (targetIndex <= currentIndex) {
+        return sale;
+      }
+      
+      const nextLevel = levelOrder[targetIndex];
+      
+      const newApprovals = sale.approvals.map((a) => {
+        const approvalIndex = levelOrder.indexOf(a.level);
+        if (approvalIndex >= currentIndex && approvalIndex < targetIndex) {
+          return { ...a, status: 'escalated' as const, timestamp: new Date().toISOString() };
+        }
+        return a;
+      });
+      
+      const statusMap: Record<string, string> = {
+        director: 'pending',
+        committee: 'director_approved',
+        financial: 'committee_approved',
+      };
+      
+      return {
+        ...sale,
+        escalated: true,
+        currentLevel: nextLevel as SaleRecord['currentLevel'],
+        status: statusMap[nextLevel] as SaleRecord['status'],
+        approvals: newApprovals,
+        lastUpdate: new Date().toISOString(),
+      };
     });
     
     set({ sales: updatedSales });
@@ -423,6 +437,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const alert = state.alerts.find(a => a.id === alertId);
     if (!alert) return;
     
+    const now = new Date().toISOString();
     const workOrder: WorkOrder = {
       id: generateId(),
       alertId,
@@ -430,10 +445,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       status: 'open',
       assignee: state.currentUser.name,
       assigneeId: state.currentUser.id,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
       description,
       location: alert.hallName,
       progress: 0,
+      logs: [
+        {
+          id: generateId(),
+          type: 'created',
+          description: `工单创建，关联告警：${alert.type}`,
+          operator: state.currentUser.name,
+          operatorId: state.currentUser.id,
+          timestamp: now,
+        },
+      ],
     };
     
     set({
@@ -449,10 +474,52 @@ export const useAppStore = create<AppState>((set, get) => ({
     const workOrder = state.workOrders.find(w => w.id === id);
     if (!workOrder) return;
     
-    const updatedWorkOrder = { ...workOrder, ...updates };
+    const now = new Date().toISOString();
+    const newLogs = [...workOrder.logs];
+    
+    if (updates.status === 'in_progress' && workOrder.status !== 'in_progress') {
+      newLogs.push({
+        id: generateId(),
+        type: 'started',
+        description: '开始处理工单',
+        operator: state.currentUser.name,
+        operatorId: state.currentUser.id,
+        timestamp: now,
+      });
+    }
+    
+    if (updates.progress !== undefined && updates.progress > workOrder.progress) {
+      newLogs.push({
+        id: generateId(),
+        type: 'progress',
+        description: `更新处理进度至${updates.progress}%`,
+        operator: state.currentUser.name,
+        operatorId: state.currentUser.id,
+        timestamp: now,
+        progress: updates.progress,
+      });
+    }
+    
+    if (updates.status === 'resolved' && workOrder.status !== 'resolved') {
+      newLogs.push({
+        id: generateId(),
+        type: 'resolved',
+        description: '工单已完成处理',
+        operator: state.currentUser.name,
+        operatorId: state.currentUser.id,
+        timestamp: now,
+        progress: 100,
+      });
+    }
+    
+    const updatedWorkOrder = { 
+      ...workOrder, 
+      ...updates, 
+      logs: newLogs 
+    };
     
     if (updates.status === 'resolved') {
-      updatedWorkOrder.resolvedAt = new Date().toISOString();
+      updatedWorkOrder.resolvedAt = now;
       if (workOrder.alertId) {
         get().resolveAlert(workOrder.alertId);
       }
@@ -590,6 +657,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     
     const activeAlerts = filteredAlerts.filter(a => !a.resolvedAt);
     
+    const hasFilters = filters.artist || filters.exhibition || filters.dateRange;
+    
     const exhibitionTaskMap = new Map<string, InstallTask[]>();
     filteredTasks.forEach(task => {
       if (!exhibitionTaskMap.has(task.exhibitionId)) {
@@ -601,7 +670,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const installations: InstallationProgress[] = [];
     filteredExhibitions.forEach(exhibition => {
       const exhibitionTasks = exhibitionTaskMap.get(exhibition.id) || [];
-      if (exhibitionTasks.length > 0 || filters.exhibition === exhibition.id) {
+      const hasTasks = exhibitionTasks.length > 0;
+      const isFilteredExhibition = filters.exhibition === exhibition.id;
+      const isInstalling = exhibition.status === 'installing' || exhibition.status === 'ongoing';
+      
+      if (hasTasks || isFilteredExhibition || (isInstalling && !hasFilters)) {
         const totalTasks = exhibitionTasks.length || 1;
         const completedTasks = exhibitionTasks.filter(t => t.status === 'completed').length;
         const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
@@ -617,16 +690,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     });
     
-    const hasFilters = filters.artist || filters.exhibition || filters.dateRange;
-    const logistics: TransportSummary[] = hasFilters 
-      ? filteredTransports.map(t => ({
-          transportId: t.id,
-          artworkTitle: t.artworkTitle,
-          status: t.status,
-          currentLocation: t.currentLocation,
-          estimatedArrival: t.estimatedArrival,
-        }))
-      : state.dashboardData.logistics;
+    const logistics: TransportSummary[] = filteredTransports.map(t => ({
+      transportId: t.id,
+      artworkTitle: t.artworkTitle,
+      status: t.status,
+      currentLocation: t.currentLocation,
+      estimatedArrival: t.estimatedArrival,
+    }));
     
     const oldData = state.dashboardData;
     const newData: DashboardData = {
@@ -704,5 +774,42 @@ export const useAppStore = create<AppState>((set, get) => ({
       s.status !== 'rejected' && 
       s.currentLevel === userLevel
     ).length;
+  },
+
+  saveDashboardView: (name, visibleWidgets) => {
+    const state = get();
+    const newView: DashboardView = {
+      id: generateId(),
+      name,
+      filters: { ...state.filters },
+      visibleWidgets,
+      createdAt: new Date().toISOString(),
+      createdBy: state.currentUser.id,
+    };
+    
+    set({
+      dashboardViews: [...state.dashboardViews, newView],
+      currentViewId: newView.id,
+    });
+  },
+
+  loadDashboardView: (viewId) => {
+    const state = get();
+    const view = state.dashboardViews.find(v => v.id === viewId);
+    if (view) {
+      set({
+        filters: { ...view.filters },
+        currentViewId: viewId,
+      });
+      setTimeout(() => get().recalculateDashboardData(), 0);
+    }
+  },
+
+  deleteDashboardView: (viewId) => {
+    const state = get();
+    set({
+      dashboardViews: state.dashboardViews.filter(v => v.id !== viewId),
+      currentViewId: state.currentViewId === viewId ? null : state.currentViewId,
+    });
   },
 }));

@@ -2,6 +2,7 @@ import { Bell, Search, Moon, Sun, User, ChevronDown, Download, LogOut, UserPlus,
 import { useAppStore } from '@/store/useAppStore';
 import { cn, getRoleText, formatCurrency } from '@/utils';
 import { useState, useRef, useEffect } from 'react';
+import ExportReportModal from '@/components/common/ExportReportModal';
 
 interface HeaderProps {
   title: string;
@@ -15,6 +16,8 @@ export default function Header({ title, subtitle, showExport, onExport }: Header
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showSwitchUser, setShowSwitchUser] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportType, setExportType] = useState<'monthly' | 'flow'>('monthly');
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -40,155 +43,19 @@ export default function Header({ title, subtitle, showExport, onExport }: Header
     setShowSwitchUser(false);
   };
 
-  const generateMonthlyReport = () => {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    
-    const monthSales = sales.filter(s => {
-      const date = new Date(s.createdAt);
-      return date >= monthStart && date <= monthEnd;
-    });
-    
-    const approvedSales = monthSales.filter(s => s.status === 'approved');
-    const totalRevenue = approvedSales.reduce((sum, s) => sum + s.amount, 0);
-    const pendingCount = monthSales.filter(s => s.status !== 'approved' && s.status !== 'rejected').length;
-    
-    const newArtworks = artworks.filter(a => {
-      const date = new Date(a.createdAt);
-      return date >= monthStart && date <= monthEnd;
-    });
-
-    const reportContent = `
-╔══════════════════════════════════════════════════════════════╗
-║              艺管系统 - 月度运营报告                        ║
-╚══════════════════════════════════════════════════════════════╝
-
-报告月份: ${monthStart.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long' })}
-生成时间: ${new Date().toLocaleString('zh-CN')}
-
-┌──────────────────────────────────────────────────────────────┐
-│  核心指标                                                    │
-├──────────────────────────────────────────────────────────────┤
-│  藏品总数: ${String(artworks.length).padEnd(20)}件          │
-│  本月新增: ${String(newArtworks.length).padEnd(20)}件        │
-│  藏品总值: ${String(formatCurrency(artworks.reduce((sum, a) => sum + a.valuation.high, 0))).padEnd(20)}│
-│                                                              │
-│  申请总数: ${String(monthSales.length).padEnd(20)}件         │
-│  已通过: ${String(approvedSales.length).padEnd(20)}件        │
-│  待审批: ${String(pendingCount).padEnd(20)}件                │
-│  成交额: ${String(formatCurrency(totalRevenue)).padEnd(20)}  │
-│                                                              │
-│  进行中展览: ${String(exhibitions.filter(e => e.status === 'ongoing').length).padEnd(20)}个   │
-│  布展中展览: ${String(exhibitions.filter(e => e.status === 'installing').length).padEnd(20)}个 │
-└──────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────┐
-│  分类统计                                                    │
-├──────────────────────────────────────────────────────────────┤
-${['油画', '国画', '雕塑', '摄影', '装置'].map(cat => {
-  const count = artworks.filter(a => a.category === cat).length;
-  return `│  ${cat.padEnd(10)}: ${String(count).padEnd(15)}件${' '.repeat(28)}│`;
-}).join('\n')}
-└──────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────┐
-│  本月成交作品 TOP 5                                          │
-├──────────────────────────────────────────────────────────────┤
-${approvedSales.slice(0, 5).map((s, i) => 
-  `│  ${i + 1}. ${s.artworkTitle.padEnd(20)} ${formatCurrency(s.amount).padStart(15)}  │`
-).join('\n')}
-└──────────────────────────────────────────────────────────────┘
-
-报告生成系统 v1.0
-    `.trim();
-
-    return reportContent;
-  };
-
-  const generateFlowReport = () => {
-    const now = new Date();
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    
-    const recentArtworks = artworks.filter(a => new Date(a.createdAt) >= thirtyDaysAgo);
-    const recentSales = sales.filter(s => new Date(s.createdAt) >= thirtyDaysAgo);
-    
-    const statusFlow = artworks.reduce((acc, a) => {
-      acc[a.status] = (acc[a.status] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-
-    const reportContent = `
-╔══════════════════════════════════════════════════════════════╗
-║              艺管系统 - 藏品流动明细                        ║
-╚══════════════════════════════════════════════════════════════╝
-
-统计周期: 近30天
-生成时间: ${new Date().toLocaleString('zh-CN')}
-
-┌──────────────────────────────────────────────────────────────┐
-│  藏品状态分布                                                │
-├──────────────────────────────────────────────────────────────┤
-│  在库: ${String(statusFlow.in_storage || 0).padEnd(20)}件    │
-│  展出中: ${String(statusFlow.on_exhibition || 0).padEnd(20)}件│
-│  外借中: ${String(statusFlow.on_loan || 0).padEnd(20)}件      │
-│  运输中: ${String(statusFlow.in_transport || 0).padEnd(20)}件│
-│  已售出: ${String(statusFlow.sold || 0).padEnd(20)}件        │
-└──────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────┐
-│  新增藏品 (${recentArtworks.length}件)                        │
-├──────────────────────────────────────────────────────────────┤
-${recentArtworks.length > 0 ? recentArtworks.map(a => 
-  `│  • ${a.title.padEnd(20)} ${a.artistName.padEnd(12)} ${formatCurrency(a.valuation.high).padStart(12)} │`
-).join('\n') : '│  无新增藏品                                                  │'}
-└──────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────┐
-│  交易记录 (${recentSales.length}笔)                           │
-├──────────────────────────────────────────────────────────────┤
-${recentSales.length > 0 ? recentSales.map(s => 
-  `│  • ${s.artworkTitle.padEnd(18)} ${(s.type === 'sale' ? '销售' : '租赁').padEnd(4)} ${formatCurrency(s.amount).padStart(12)} ${s.status.padEnd(10)} │`
-).join('\n') : '│  无交易记录                                                  │'}
-└──────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────┐
-│  艺术家作品分布                                              │
-├──────────────────────────────────────────────────────────────┤
-${artists.map(artist => {
-  const count = artworks.filter(a => a.artistId === artist.id).length;
-  const totalValue = artworks.filter(a => a.artistId === artist.id).reduce((sum, a) => sum + a.valuation.high, 0);
-  return `│  ${artist.name.padEnd(10)}: ${String(count).padEnd(5)}件  总值: ${formatCurrency(totalValue).padStart(12)} │`;
-}).join('\n')}
-└──────────────────────────────────────────────────────────────┘
-
-报告生成系统 v1.0
-    `.trim();
-
-    return reportContent;
-  };
-
-  const handleExport = (type: 'monthly' | 'flow') => {
-    const content = type === 'monthly' ? generateMonthlyReport() : generateFlowReport();
-    const filename = type === 'monthly' 
-      ? `月度运营报告_${new Date().toISOString().split('T')[0]}.txt`
-      : `藏品流动明细_${new Date().toISOString().split('T')[0]}.txt`;
-    
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    
+  const handleOpenExportModal = (type: 'monthly' | 'flow') => {
+    setExportType(type);
     setShowExportMenu(false);
+    setShowExportModal(true);
+  };
+
+  const handleExportClose = () => {
+    setShowExportModal(false);
     onExport?.();
   };
 
   return (
+    <>
     <header className="h-16 bg-white dark:bg-ink-900 border-b border-ink-200 dark:border-ink-800 flex items-center justify-between px-6 sticky top-0 z-40">
       <div>
         <h1 className="text-xl font-display font-semibold text-ink-800 dark:text-ink-100">
@@ -222,23 +89,23 @@ ${artists.map(artist => {
             {showExportMenu && (
               <div className="absolute right-0 top-full mt-2 w-56 py-2 bg-white dark:bg-ink-800 rounded-lg shadow-lg border border-ink-200 dark:border-ink-700 z-50 animate-fade-in">
                 <button
-                  onClick={() => handleExport('monthly')}
+                  onClick={() => handleOpenExportModal('monthly')}
                   className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm text-ink-700 dark:text-ink-300 hover:bg-ink-50 dark:hover:bg-ink-700/50 transition-colors"
                 >
                   <FileText className="w-4 h-4 text-gold-500" />
                   <div>
                     <p className="font-medium">月度运营报告</p>
-                    <p className="text-xs text-ink-400">包含核心指标、分类统计</p>
+                    <p className="text-xs text-ink-400">可选择时间范围导出</p>
                   </div>
                 </button>
                 <button
-                  onClick={() => handleExport('flow')}
+                  onClick={() => handleOpenExportModal('flow')}
                   className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm text-ink-700 dark:text-ink-300 hover:bg-ink-50 dark:hover:bg-ink-700/50 transition-colors"
                 >
                   <TrendingUp className="w-4 h-4 text-blue-500" />
                   <div>
                     <p className="font-medium">藏品流动明细</p>
-                    <p className="text-xs text-ink-400">包含状态分布、交易记录</p>
+                    <p className="text-xs text-ink-400">可选择时间范围导出</p>
                   </div>
                 </button>
               </div>
@@ -338,5 +205,12 @@ ${artists.map(artist => {
         </div>
       </div>
     </header>
+
+      <ExportReportModal
+        isOpen={showExportModal}
+        onClose={handleExportClose}
+        defaultType={exportType}
+      />
+    </>
   );
 }

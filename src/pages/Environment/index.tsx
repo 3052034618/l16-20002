@@ -243,6 +243,7 @@ export default function Environment() {
   const [showWorkOrderModal, setShowWorkOrderModal] = useState(false);
   const [showWorkOrderListModal, setShowWorkOrderListModal] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
+  const [workOrderAlertId, setWorkOrderAlertId] = useState<string | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -297,7 +298,10 @@ export default function Environment() {
             最后更新: {lastUpdate.toLocaleTimeString('zh-CN')}
           </span>
           <button 
-            onClick={() => setShowWorkOrderListModal(true)}
+            onClick={() => {
+              setWorkOrderAlertId(null);
+              setShowWorkOrderListModal(true);
+            }}
             className="flex items-center gap-2 px-4 py-2 bg-ink-100 dark:bg-ink-700 text-ink-600 dark:text-ink-300 rounded-lg text-sm font-medium hover:bg-ink-200 dark:hover:bg-ink-600 transition-colors"
           >
             <ListTodo className="w-4 h-4" />
@@ -396,7 +400,10 @@ export default function Environment() {
                   key={alert.id} 
                   alert={alert} 
                   onHandle={handleAlert}
-                  onViewWorkOrder={() => setShowWorkOrderListModal(true)}
+                  onViewWorkOrder={() => {
+                    setWorkOrderAlertId(alert.id);
+                    setShowWorkOrderListModal(true);
+                  }}
                 />
               ))
             ) : (
@@ -478,6 +485,7 @@ export default function Environment() {
       <WorkOrderListModal
         isOpen={showWorkOrderListModal}
         onClose={() => setShowWorkOrderListModal(false)}
+        defaultAlertId={workOrderAlertId || undefined}
       />
     </div>
   );

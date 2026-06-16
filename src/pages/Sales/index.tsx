@@ -143,6 +143,7 @@ export default function Sales() {
   const { sales, escalateOverdueSales, currentUser, hasPermission, getPendingCountForCurrentUser } = useAppStore();
   const [activeTypeTab, setActiveTypeTab] = useState('all');
   const [activeStatusTab, setActiveStatusTab] = useState('all');
+  const [viewMode, setViewMode] = useState<'all' | 'mine'>('mine');
   const [searchTerm, setSearchTerm] = useState('');
   const [showFormModal, setShowFormModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -156,6 +157,15 @@ export default function Sales() {
     return () => clearInterval(interval);
   }, [escalateOverdueSales]);
 
+  const roleLevelMap: Record<string, string> = {
+    director: 'director',
+    curator: 'committee',
+    keeper: 'financial',
+  };
+  
+  const userLevel = roleLevelMap[currentUser.role];
+  const canApprove = !!userLevel;
+
   const filteredSales = sales.filter((sale) => {
     const matchType = activeTypeTab === 'all' || sale.type === activeTypeTab;
     const matchStatus = activeStatusTab === 'all' || sale.status === activeStatusTab;
@@ -163,7 +173,11 @@ export default function Sales() {
       sale.artworkTitle.toLowerCase().includes(searchTerm.toLowerCase()) ||
       sale.artistName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       sale.applicant.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchType && matchStatus && matchSearch;
+    
+    const matchMine = viewMode === 'all' || 
+      (canApprove && sale.currentLevel === userLevel && sale.status !== 'approved' && sale.status !== 'rejected');
+    
+    return matchType && matchStatus && matchSearch && matchMine;
   });
 
   const pendingCount = getPendingCountForCurrentUser();
@@ -235,6 +249,40 @@ export default function Sales() {
       <div className="bg-white dark:bg-ink-800/50 rounded-xl p-4 border border-ink-200 dark:border-ink-700/50 mb-6">
         <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
           <div className="flex flex-wrap gap-2">
+            {canApprove && (
+              <>
+              <div className="flex items-center gap-1 rounded-lg border border-gold-500/50 overflow-hidden">
+                <button
+                  onClick={() => setViewMode('mine')}
+                  className={cn(
+                  'px-3 py-1.5 text-sm font-medium transition-colors',
+                  viewMode === 'mine'
+                    ? 'bg-gold-500 text-white'
+                    : 'text-ink-600 dark:text-ink-300 hover:bg-gold-50 dark:hover:bg-gold-500/10'
+                )}
+              >
+                待我审批
+                {pendingCount > 0 && (
+                  <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-white/20 text-xs">
+                    {pendingCount}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setViewMode('all')}
+                className={cn(
+                  'px-3 py-1.5 text-sm font-medium transition-colors',
+                  viewMode === 'all'
+                    ? 'bg-gold-500 text-white'
+                    : 'text-ink-600 dark:text-ink-300 hover:bg-gold-50 dark:hover:bg-gold-500/10'
+                )}
+              >
+                全部申请
+              </button>
+            </div>
+            </>
+            )}
+
             <div className="flex items-center gap-1 rounded-lg border border-ink-200 dark:border-ink-700 overflow-hidden">
               {typeTabs.map((tab) => (
                 <button
